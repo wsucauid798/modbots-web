@@ -1,0 +1,48 @@
+@import "tailwindcss";
+@import "./styles/overrides.css";
+
+:root {
+  color-scheme: dark;
+  font-family:
+    var(
+      --modbots-ui-font,
+      "Segoe UI Variable Text",
+      "Segoe UI Variable",
+      "Segoe UI",
+      Aptos,
+      "Helvetica Neue",
+      Helvetica,
+      Arial,
+      sans-serif
+    );
+  font-synthesis: none;
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top, rgba(248, 250, 252, 0.08), transparent 26%),
+    linear-gradient(180deg, #09090b 0%, #111114 44%, #0a0a0c 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}

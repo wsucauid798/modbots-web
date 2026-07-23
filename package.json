@@ -3,13 +3,18 @@
   "version": "0.0.1-alpha",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "concurrently --names styles,next --prefix-colors magenta,cyan \"npm:styles:watch\" \"npm:dev:next\"",
+    "dev:next": "next dev",
+    "styles:build": "sass src/styles/overrides.scss src/styles/overrides.css --no-source-map",
+    "styles:watch": "sass --watch src/styles/overrides.scss:src/styles/overrides.css --no-source-map",
+    "build": "npm run styles:build && next build",
     "start": "next start",
     "lint": "biome check",
     "format": "biome format --write"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.101.4",
+    "lucide-react": "^1.26.0",
     "next": "16.2.11",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -21,6 +26,8 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
+    "concurrently": "^10.0.3",
+    "sass": "^1.101.6",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
