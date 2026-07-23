@@ -24,23 +24,11 @@ function ToggleRow({
 
 export function AppSettingsDialog({
   sendWithEnter,
-  showStatusBar,
-  openParticipantsOnStart,
-  openRoomInfoOnStart,
   onSendWithEnterChange,
-  onShowStatusBarChange,
-  onOpenParticipantsOnStartChange,
-  onOpenRoomInfoOnStartChange,
   onClose,
 }: {
   sendWithEnter: boolean;
-  showStatusBar: boolean;
-  openParticipantsOnStart: boolean;
-  openRoomInfoOnStart: boolean;
   onSendWithEnterChange: (checked: boolean) => void;
-  onShowStatusBarChange: (checked: boolean) => void;
-  onOpenParticipantsOnStartChange: (checked: boolean) => void;
-  onOpenRoomInfoOnStartChange: (checked: boolean) => void;
   onClose: () => void;
 }) {
   return (
@@ -77,21 +65,6 @@ export function AppSettingsDialog({
             label="Send with Enter"
             checked={sendWithEnter}
             onChange={onSendWithEnterChange}
-          />
-          <ToggleRow
-            label="Show status bar"
-            checked={showStatusBar}
-            onChange={onShowStatusBarChange}
-          />
-          <ToggleRow
-            label="Open participants at start"
-            checked={openParticipantsOnStart}
-            onChange={onOpenParticipantsOnStartChange}
-          />
-          <ToggleRow
-            label="Open room information at start"
-            checked={openRoomInfoOnStart}
-            onChange={onOpenRoomInfoOnStartChange}
           />
         </div>
       </div>

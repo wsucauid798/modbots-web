@@ -459,9 +459,6 @@ const activityScopes: Array<{ id: ActivityScope; label: string }> = [
 
 const settingsStorageKeys = {
   sendWithEnter: "modbots.web.send-with-enter",
-  showStatusBar: "modbots.web.show-status-bar",
-  openParticipantsOnStart: "modbots.web.open-participants-on-start",
-  openRoomInfoOnStart: "modbots.web.open-room-info-on-start",
 };
 
 const readStoredBoolean = (key: string, fallback: boolean): boolean => {
@@ -1753,9 +1750,6 @@ function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sendWithEnter, setSendWithEnter] = useState(true);
-  const [showStatusBar, setShowStatusBar] = useState(true);
-  const [openParticipantsOnStart, setOpenParticipantsOnStart] = useState(true);
-  const [openRoomInfoOnStart, setOpenRoomInfoOnStart] = useState(true);
   const [settingsReady, setSettingsReady] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   // Entering the room is an explicit act every launch: nothing inside the
@@ -1782,15 +1776,6 @@ function App() {
     setSendWithEnter(
       readStoredBoolean(settingsStorageKeys.sendWithEnter, true),
     );
-    setShowStatusBar(
-      readStoredBoolean(settingsStorageKeys.showStatusBar, true),
-    );
-    setOpenParticipantsOnStart(
-      readStoredBoolean(settingsStorageKeys.openParticipantsOnStart, true),
-    );
-    setOpenRoomInfoOnStart(
-      readStoredBoolean(settingsStorageKeys.openRoomInfoOnStart, true),
-    );
     setSettingsReady(true);
   }, []);
 
@@ -1803,43 +1788,13 @@ function App() {
   }, [sendWithEnter, settingsReady]);
 
   useEffect(() => {
-    if (!settingsReady) {
-      return;
-    }
-
-    writeStoredBoolean(settingsStorageKeys.showStatusBar, showStatusBar);
-  }, [showStatusBar, settingsReady]);
-
-  useEffect(() => {
-    if (!settingsReady) {
-      return;
-    }
-
-    writeStoredBoolean(
-      settingsStorageKeys.openParticipantsOnStart,
-      openParticipantsOnStart,
-    );
-  }, [openParticipantsOnStart, settingsReady]);
-
-  useEffect(() => {
-    if (!settingsReady) {
-      return;
-    }
-
-    writeStoredBoolean(
-      settingsStorageKeys.openRoomInfoOnStart,
-      openRoomInfoOnStart,
-    );
-  }, [openRoomInfoOnStart, settingsReady]);
-
-  useEffect(() => {
     if (entered && !wasEntered.current) {
-      setMembersOpen(openParticipantsOnStart);
-      setAboutPanelOpen(openRoomInfoOnStart);
+      setMembersOpen(true);
+      setAboutPanelOpen(true);
     }
 
     wasEntered.current = entered;
-  }, [entered, openParticipantsOnStart, openRoomInfoOnStart]);
+  }, [entered]);
 
   const participantStatuses = useMemo(() => {
     const statuses = new Map<
@@ -2372,21 +2327,6 @@ function App() {
 
     return null;
   };
-  const runEditCommand = (command: string) => {
-    const element = activeTextInput();
-    element?.focus();
-    document.execCommand(command);
-  };
-  const selectActiveText = () => {
-    const element = activeTextInput();
-
-    if (element !== null) {
-      element.select();
-      return;
-    }
-
-    document.execCommand("selectAll");
-  };
   const focusComposer = () => {
     composerRef.current?.focus();
   };
@@ -2422,6 +2362,11 @@ function App() {
 
     if (text.length > 0) {
       insertIntoDraft(text);
+    }
+  };
+  const copyDraft = async () => {
+    if (draft.length > 0) {
+      await navigator.clipboard.writeText(draft);
     }
   };
   const closeAppWindow = () => {
@@ -2517,15 +2462,6 @@ function App() {
       label: "File",
       items: [
         {
-          label: "Settings...",
-          shortcut: "Ctrl+,",
-          onSelect: () => setSettingsOpen(true),
-        },
-        {
-          kind: "separator",
-          id: "file-close",
-        },
-        {
           label: "Exit Mod Bots",
           onSelect: closeAppWindow,
         },
@@ -2536,43 +2472,16 @@ function App() {
       label: "Edit",
       items: [
         {
-          label: "Undo",
-          shortcut: "Ctrl+Z",
-          onSelect: () => runEditCommand("undo"),
-        },
-        {
-          label: "Redo",
-          shortcut: "Ctrl+Y",
-          onSelect: () => runEditCommand("redo"),
-        },
-        {
-          kind: "separator",
-          id: "edit-clipboard",
-        },
-        {
-          label: "Cut",
-          shortcut: "Ctrl+X",
-          onSelect: () => runEditCommand("cut"),
-        },
-        {
           label: "Copy",
           shortcut: "Ctrl+C",
-          onSelect: () => runEditCommand("copy"),
+          disabled: draft.length === 0,
+          onSelect: () => void copyDraft().catch(() => undefined),
         },
         {
           label: "Paste into draft",
           shortcut: "Ctrl+V",
           disabled: localActor === undefined || !apiConnected,
           onSelect: () => void pasteIntoDraft().catch(() => undefined),
-        },
-        {
-          label: "Delete",
-          onSelect: () => runEditCommand("delete"),
-        },
-        {
-          label: "Select all",
-          shortcut: "Ctrl+A",
-          onSelect: selectActiveText,
         },
         {
           kind: "separator",
@@ -2609,25 +2518,6 @@ function App() {
       id: "view",
       label: "View",
       items: [
-        {
-          label: "Participants panel",
-          checked: membersOpen,
-          onSelect: () => setMembersOpen((open) => !open),
-        },
-        {
-          label: "Room information",
-          checked: aboutPanelOpen,
-          onSelect: () => setAboutPanelOpen((open) => !open),
-        },
-        {
-          label: "Status bar",
-          checked: showStatusBar,
-          onSelect: () => setShowStatusBar((shown) => !shown),
-        },
-        {
-          kind: "separator",
-          id: "view-activity",
-        },
         {
           label: "Activity: 7d",
           checked: activityScope === "7d",
@@ -2711,6 +2601,15 @@ function App() {
             setMembersOpen(true);
             setUserMenuOpen(true);
           },
+        },
+        {
+          label: "Settings...",
+          shortcut: "Ctrl+,",
+          onSelect: () => setSettingsOpen(true),
+        },
+        {
+          kind: "separator",
+          id: "account-session",
         },
         {
           label: "Log out",
@@ -3848,7 +3747,7 @@ function App() {
         )}
       </div>
 
-      {entered && showStatusBar ? (
+      {entered ? (
         <StatusBar
           connectionLabel={connectionLabel}
           sending={sendMessage.isPending || sendContent.isPending}
@@ -3862,13 +3761,7 @@ function App() {
       {settingsOpen ? (
         <AppSettingsDialog
           sendWithEnter={sendWithEnter}
-          showStatusBar={showStatusBar}
-          openParticipantsOnStart={openParticipantsOnStart}
-          openRoomInfoOnStart={openRoomInfoOnStart}
           onSendWithEnterChange={setSendWithEnter}
-          onShowStatusBarChange={setShowStatusBar}
-          onOpenParticipantsOnStartChange={setOpenParticipantsOnStart}
-          onOpenRoomInfoOnStartChange={setOpenRoomInfoOnStart}
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
