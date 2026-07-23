@@ -34,6 +34,7 @@ import {
   postRoomMessage,
   setRoomPresence,
   setSessionToken,
+  updateActorProfile,
 } from "../data/platform";
 import type { BrowserLoginOutcome } from "../data/oauth";
 import { runWebSocket, runWebTransport } from "../data/realtime";
@@ -77,9 +78,8 @@ const wait = (milliseconds: number, signal: AbortSignal): Promise<void> =>
 
 export const useRoomActivity = (roomId: string) => {
   const queryClient = useQueryClient();
-  const [identity, setIdentity] = useState<StoredIdentity | null>(
-    restoreIdentity,
-  );
+  const [identity, setIdentity] = useState<StoredIdentity | null>(null);
+  const [identityRestored, setIdentityRestored] = useState(false);
   const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>({
     state: "connecting",
     transport: null,
@@ -94,6 +94,11 @@ export const useRoomActivity = (roomId: string) => {
     () => ["room-roster", roomId] as const,
     [roomId],
   );
+
+  useEffect(() => {
+    setIdentity(restoreIdentity());
+    setIdentityRestored(true);
+  }, []);
 
   const apiHealth = useQuery({
     queryKey: ["api-health"],
@@ -211,6 +216,27 @@ export const useRoomActivity = (roomId: string) => {
       // The desktop session query validates the new identity and joins the
       // room through the presence endpoint, the same path a restart takes.
       setIdentity(stored);
+    },
+  });
+  const updateProfile = useMutation({
+    mutationFn: async (profile: {
+      bio: string | null;
+      pronouns: string | null;
+      location: string | null;
+      links: string[];
+    }) => {
+      if (localActor === undefined) {
+        throw new Error("Join the room before updating your profile.");
+      }
+
+      return updateActorProfile(localActor.id, profile);
+    },
+    onSuccess: (actor) => {
+      queryClient.setQueryData(
+        ["desktop-session", roomId, actor.id],
+        actor,
+      );
+      queryClient.setQueryData(["actor", actor.id], actor);
     },
   });
   // A completed browser login (automatic return or pasted code) becomes
@@ -538,6 +564,7 @@ export const useRoomActivity = (roomId: string) => {
     enterRoom,
     events,
     hasIdentity: identity !== null,
+    identityRestored,
     join,
     localActor,
     onlineActorIds: currentOnlineActorIds,
@@ -550,5 +577,6 @@ export const useRoomActivity = (roomId: string) => {
     sendMessage,
     sendContent,
     signOut,
+    updateProfile,
   };
 };

@@ -1,16 +1,20 @@
 "use client";
 
 import {
-  ArrowRight,
+  AtSign,
   Bot,
+  Camera,
   CalendarDays,
   ChevronDown,
   CircleAlert,
   Copy,
   CornerUpLeft,
   DoorOpen,
+  FileText,
   Image,
+  Link as LinkIcon,
   LogOut,
+  MapPin,
   MessageSquare,
   Mic,
   MicOff,
@@ -19,7 +23,6 @@ import {
   Reply,
   Search,
   Send,
-  Settings as SettingsIcon,
   Shield,
   SmilePlus,
   Users,
@@ -42,7 +45,11 @@ import {
 } from "react";
 import appLogo from "../assets/logo.svg";
 import startScreenBg from "../assets/start-screen-bg.png";
-import { AppSettingsDialog } from "../components/AppSettingsDialog";
+import {
+  SettingsDialog,
+  type AccountSettingsSummary,
+  type SettingsSection,
+} from "../components/SettingsDialog";
 import { MenuBar } from "../components/MenuBar";
 import type {
   Actor,
@@ -1263,12 +1270,10 @@ function ProfileDetailRow({
   icon,
   label,
   value,
-  subtle = false,
 }: {
   icon: ReactNode;
   label: string;
-  value: string;
-  subtle?: boolean;
+  value: ReactNode;
 }) {
   return (
     <div className="flex items-start gap-3 rounded-xl px-1 py-1.5">
@@ -1279,15 +1284,34 @@ function ProfileDetailRow({
         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-600">
           {label}
         </p>
-        <p
-          className={`mt-0.5 text-[12px] leading-5 ${
-            subtle ? "text-zinc-400" : "text-zinc-200"
-          }`}
-        >
-          {value}
-        </p>
+        <div className="mt-0.5 text-[12px] leading-5 text-zinc-200">{value}</div>
       </div>
     </div>
+  );
+}
+
+function RegisteredMark({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      aria-hidden="true"
+      className={className}
+      fill="none"
+    >
+      <path
+        d="M7 3H5a2 2 0 0 0-2 2v2m10-4h2a2 2 0 0 1 2 2v2M7 17H5a2 2 0 0 1-2-2v-2m10 4h2a2 2 0 0 0 2-2v-2"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <path
+        d="m6.5 10 2.25 2.25 4.75-5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -1703,6 +1727,7 @@ function App() {
     sendContent,
     sendMessage,
     signOut,
+    updateProfile,
   } = useRoomActivity(roomId);
   const [draft, setDraft] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -1745,6 +1770,8 @@ function App() {
   } | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] =
+    useState<SettingsSection>("account");
   const [sendWithEnter, setSendWithEnter] = useState(true);
   const [settingsReady, setSettingsReady] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -1782,6 +1809,11 @@ function App() {
 
     writeStoredBoolean(settingsStorageKeys.sendWithEnter, sendWithEnter);
   }, [sendWithEnter, settingsReady]);
+
+  const openSettings = useCallback((section: SettingsSection = "account") => {
+    setSettingsSection(section);
+    setSettingsOpen(true);
+  }, []);
 
   useEffect(() => {
     if (entered && !wasEntered.current) {
@@ -2241,6 +2273,14 @@ function App() {
         localActor.registered && localActor.handle !== null
           ? `@${localActor.handle}`
           : "This identity ends when you leave",
+      identityLabel:
+        localActor.discriminator === null
+          ? "No room identity assigned"
+          : `Room identity #${localActor.discriminator}`,
+      profilePictureLabel:
+        localActor.profilePictureId === null
+          ? "Monogram fallback right now"
+          : "UPPS-served picture",
       joinedAt,
       lastMessageAt,
       messages,
@@ -2264,6 +2304,48 @@ function App() {
     messagesByContentItem,
     ruleTitles,
   ]);
+  const accountSettings = useMemo<AccountSettingsSummary | null>(() => {
+    if (localActor === undefined || localProfile === null) {
+      return null;
+    }
+
+    return {
+      display: localActor.display,
+      alias: localProfile.handleLabel,
+      accountLabel: localProfile.accountLabel,
+      registered: localActor.registered,
+      identityLabel: localProfile.identityLabel,
+      memberSinceLabel: memberSince(localActor.createdAt),
+      profilePictureSummary:
+        localActor.profilePictureId === null
+          ? "You are using the monogram fallback right now. Picture management belongs on your account page."
+          : "This profile picture is assigned through the Unified Profile-Picture System.",
+      healthSummary:
+        isMuted
+          ? "Muted right now."
+          : localProfile.moderationOnMe === 0
+            ? "Good standing. No mod bot has had to act on your messages."
+            : `${localProfile.moderationOnMe.toLocaleString()} mod bot ${
+                localProfile.moderationOnMe === 1 ? "action" : "actions"
+              } on your messages.`,
+      latestModerationLabel: localProfile.lastModerationLabel,
+      bio: localActor.bio,
+      pronouns: localActor.pronouns,
+      location: localActor.location,
+      links: localActor.links ?? [],
+    };
+  }, [isMuted, localActor, localProfile]);
+  const openAccountPage = useCallback(() => {
+    window.open(
+      new URL("/account", accountBaseUrl).toString(),
+      "_blank",
+      "noopener,noreferrer",
+    );
+  }, []);
+  const openAccountSettings = useCallback(() => {
+    setUserMenuOpen(false);
+    openSettings("account");
+  }, [openSettings]);
   // Everyone a human can address: the bot residents, always in the room, and
   // any other human currently present. Yourself and the platform are never
   // addressees.
@@ -2578,7 +2660,7 @@ function App() {
 
       if ((event.ctrlKey || event.metaKey) && event.key === "," && entered) {
         event.preventDefault();
-        setSettingsOpen(true);
+        openSettings("account");
         return;
       }
 
@@ -2672,7 +2754,7 @@ function App() {
       {entered ? (
         <MenuBar
           onFindInChat={() => searchInput.current?.focus()}
-          onOpenPreferences={() => setSettingsOpen(true)}
+          onOpenPreferences={() => openSettings("account")}
           onRefreshChatroom={() => void refresh()}
           onTakeScreenshot={() =>
             void takeScreenshot().catch(() => undefined)
@@ -2756,139 +2838,47 @@ function App() {
                     >
                       <div className="border-b border-white/[0.08] bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.08),transparent_45%)] px-4 py-4">
                         <div className="flex items-start gap-3">
-                          <ActorProfilePicture
-                            actor={localActor}
-                            actorId={localActor.id}
-                            name={localActor.display}
-                            size="lg"
-                          />
+                          <div className="relative shrink-0">
+                            <ActorProfilePicture
+                              actor={localActor}
+                              actorId={localActor.id}
+                              name={localActor.display}
+                              size="lg"
+                            />
+                            <button
+                              type="button"
+                              onClick={openAccountSettings}
+                              className="absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-[#181818] text-zinc-300 shadow-[0_10px_22px_rgba(0,0,0,0.35)] transition-colors hover:border-white/20 hover:bg-[#202020] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                              aria-label="Change profile picture"
+                              title="Change profile picture"
+                            >
+                              <Camera className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                           <div className="min-w-0 flex-1 pt-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="truncate text-[18px] font-semibold leading-6 text-zinc-50">
-                                {localActor.display}
-                              </p>
-                              <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-300">
-                                {localProfile.accountLabel}
-                              </span>
-                            </div>
-                            <p className="mt-1 truncate text-[12px] text-zinc-400">
+                            <p className="truncate text-[15px] font-semibold leading-5 text-zinc-50">
+                              {localActor.display}
+                            </p>
+                            <p className="mt-0.5 truncate text-[14px] text-zinc-400">
                               {localProfile.handleLabel}
                             </p>
-                            <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-zinc-400">
-                              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-black/20 px-2.5 py-1">
-                                <span
-                                  className={`h-2 w-2 rounded-full ${
-                                    localProfile.online
-                                      ? "bg-zinc-200"
-                                      : "border border-zinc-500"
-                                  }`}
-                                />
-                                {localProfile.online ? "In the room" : "Away"}
-                              </span>
-                              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-black/20 px-2.5 py-1">
-                                {isMuted ? (
-                                  <MicOff className="h-3 w-3" />
-                                ) : (
-                                  <Shield className="h-3 w-3" />
-                                )}
-                                {isMuted ? "Muted" : "Good standing"}
-                              </span>
+                            <div className="mt-0.5 flex items-center gap-1.5">
+                              {localActor.registered ? (
+                                <RegisteredMark className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={openAccountSettings}
+                                className="inline-flex h-4 cursor-pointer items-center text-[13px] font-medium leading-none text-zinc-400 underline decoration-zinc-600 underline-offset-2 transition-colors hover:text-white hover:decoration-zinc-300 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                              >
+                                {localProfile.accountLabel}
+                              </button>
                             </div>
                           </div>
                         </div>
                       </div>
 
                       <div className="space-y-1 px-4 py-3">
-                        <ProfileDetailRow
-                          icon={
-                            isMuted ? (
-                              <MicOff className="h-4 w-4" />
-                            ) : (
-                              <Shield className="h-4 w-4" />
-                            )
-                          }
-                          label="Standing"
-                          value={
-                            isMuted
-                              ? "Muted right now"
-                              : localProfile.moderationOnMe === 0
-                                ? "Good standing · no mod bot has had to act on your messages"
-                                : `${localProfile.moderationOnMe.toLocaleString()} mod bot ${
-                                    localProfile.moderationOnMe === 1
-                                      ? "action"
-                                      : "actions"
-                                  } on your messages`
-                          }
-                        />
-                        {localProfile.lastModerationLabel !== null ? (
-                          <ProfileDetailRow
-                            icon={<CircleAlert className="h-4 w-4" />}
-                            label="Latest mod bot action"
-                            value={localProfile.lastModerationLabel}
-                          />
-                        ) : null}
-                        <ProfileDetailRow
-                          icon={<DoorOpen className="h-4 w-4" />}
-                          label="This visit"
-                          value={
-                            localProfile.joinedAt === null
-                              ? "This session has not entered the room yet"
-                              : `Joined ${dateTimeLabel(localProfile.joinedAt)} · ${
-                                  localProfile.roomMessagesSinceJoin === 0
-                                    ? "the room has been quiet since"
-                                    : `${localProfile.roomMessagesSinceJoin.toLocaleString()} ${
-                                        localProfile.roomMessagesSinceJoin === 1
-                                          ? "message"
-                                          : "messages"
-                                      } since you arrived`
-                                }`
-                          }
-                          subtle={localProfile.joinedAt === null}
-                        />
-                        <ProfileDetailRow
-                          icon={<MessageSquare className="h-4 w-4" />}
-                          label="Conversation"
-                          value={
-                            localProfile.messages === 0
-                              ? localProfile.mostActiveSinceJoin === null
-                                ? "You're listening · jump in whenever you're ready"
-                                : `You're listening · ${localProfile.mostActiveSinceJoin} is leading the conversation`
-                              : [
-                                  `${localProfile.messages.toLocaleString()} ${
-                                    localProfile.messages === 1
-                                      ? "message"
-                                      : "messages"
-                                  } sent`,
-                                  ...(localProfile.repliesToMe > 0
-                                    ? [
-                                        `${localProfile.repliesToMe.toLocaleString()} ${
-                                          localProfile.repliesToMe === 1
-                                            ? "reply"
-                                            : "replies"
-                                        } to you`,
-                                      ]
-                                    : []),
-                                  ...(localProfile.lastMessageAt === null
-                                    ? []
-                                    : [
-                                        `last at ${formatTime(localProfile.lastMessageAt)}`,
-                                      ]),
-                                ].join(" · ")
-                          }
-                          subtle={localProfile.messages === 0}
-                        />
-                        {localProfile.topPartners.length > 0 ? (
-                          <ProfileDetailRow
-                            icon={<Users className="h-4 w-4" />}
-                            label="Talking with"
-                            value={localProfile.topPartners
-                              .map(
-                                (partner) =>
-                                  `${partner.name} (${partner.count.toLocaleString()})`,
-                              )
-                              .join(" and ")}
-                          />
-                        ) : null}
                         <ProfileDetailRow
                           icon={<CalendarDays className="h-4 w-4" />}
                           label={
@@ -2898,30 +2888,44 @@ function App() {
                           }
                           value={memberSince(localActor.createdAt)}
                         />
-                      </div>
-
-                      <div className="space-y-2 border-t border-white/[0.08] px-3 py-3">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setUserMenuOpen(false);
-                            setSettingsOpen(true);
-                          }}
-                          className="flex w-full items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-3 text-left text-[12px] text-zinc-300 transition-colors hover:border-white/12 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-                        >
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-black/20 text-zinc-400">
-                            <SettingsIcon className="h-4 w-4" />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block font-semibold text-zinc-100">
-                              Settings
-                            </span>
-                            <span className="block text-[11px] text-zinc-500">
-                              Configure how the room behaves for you
-                            </span>
-                          </span>
-                        </button>
+                        <ProfileDetailRow
+                          icon={<FileText className="h-4 w-4" />}
+                          label="About"
+                          value={localActor.bio ?? "Not set"}
+                        />
+                        <ProfileDetailRow
+                          icon={<AtSign className="h-4 w-4" />}
+                          label="Pronouns"
+                          value={localActor.pronouns ?? "Not set"}
+                        />
+                        <ProfileDetailRow
+                          icon={<MapPin className="h-4 w-4" />}
+                          label="Location"
+                          value={localActor.location ?? "Not set"}
+                        />
+                        <ProfileDetailRow
+                          icon={<LinkIcon className="h-4 w-4" />}
+                          label="Links"
+                          value={
+                            (localActor.links ?? []).length === 0 ? (
+                              "Not set"
+                            ) : (
+                              <div className="flex flex-wrap gap-x-3 gap-y-1">
+                                {(localActor.links ?? []).map((link) => (
+                                  <a
+                                    key={link}
+                                    href={link}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="truncate underline decoration-zinc-600 underline-offset-2 hover:text-white"
+                                  >
+                                    {new URL(link).hostname}
+                                  </a>
+                                ))}
+                              </div>
+                            )
+                          }
+                        />
                       </div>
                     </div>
                   ) : null}
@@ -3653,9 +3657,33 @@ function App() {
         ) : null}
 
         {settingsOpen ? (
-          <AppSettingsDialog
+          <SettingsDialog
+            section={settingsSection}
+            onSectionChange={setSettingsSection}
+            account={accountSettings}
+            accountAvatar={
+              localActor === undefined ? null : (
+                <ActorProfilePicture
+                  actor={localActor}
+                  actorId={localActor.id}
+                  name={localActor.display}
+                  size="lg"
+                />
+              )
+            }
             sendWithEnter={sendWithEnter}
             onSendWithEnterChange={setSendWithEnter}
+            onOpenAccountPage={openAccountPage}
+            onManageProfilePicture={openAccountPage}
+            onSaveProfile={(profile) => {
+              updateProfile.mutate(profile);
+            }}
+            profileSaving={updateProfile.isPending}
+            profileError={
+              updateProfile.error instanceof Error
+                ? updateProfile.error.message
+                : null
+            }
             onClose={() => setSettingsOpen(false)}
           />
         ) : null}

@@ -128,6 +128,24 @@ export const getRoomRoster = (roomId: string): Promise<RoomRoster> =>
 export const getActor = (actorId: string): Promise<Actor> =>
   requestJson(apiUrl(`/api/actors/${encodeURIComponent(actorId)}`));
 
+export const updateActorProfile = (
+  actorId: string,
+  profile: {
+    bio: string | null;
+    pronouns: string | null;
+    location: string | null;
+    links: string[];
+  },
+): Promise<Actor> =>
+  requestJson(
+    apiUrl(`/api/actors/${encodeURIComponent(actorId)}/profile`),
+    {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(profile),
+    },
+  );
+
 export const getParticipationPolicy = (): Promise<ParticipationPolicy> =>
   requestJson(apiUrl("/api/policy"));
 

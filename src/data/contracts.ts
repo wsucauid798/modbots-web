@@ -9,6 +9,10 @@ export interface Actor {
   display: string;
   profilePictureId: string | null;
   profilePictureUrl: string | null;
+  bio: string | null;
+  pronouns: string | null;
+  location: string | null;
+  links: string[];
   type: ActorType;
   policyVersionAccepted: string | null;
   policyAcceptedAt: string | null;
