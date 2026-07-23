@@ -59,6 +59,7 @@ import { isMutedError, mediaAssetDataUrl } from "../data/platform";
 import { actorLabel, actorRole } from "../data/room-state";
 import { useRoomActivity } from "../hooks/useRoomActivity";
 import { AppSettingsDialog } from "../components/AppSettingsDialog";
+import { HelpTutorialDialog } from "../components/HelpTutorialDialog";
 import { MenuBar } from "../components/MenuBar";
 import type { MenuSpec } from "../components/MenuBar";
 
@@ -614,7 +615,7 @@ const buildTimeline = (events: RoomEvent[]): TimelineItem[] => {
   return items;
 };
 
-type MenuId = "file" | "edit" | "view" | "help";
+type MenuId = "file" | "edit" | "view" | "account" | "help";
 
 // Panel widths survive restarts the way the window's own frame does:
 // window-state remembers the frame, this remembers the panels.
@@ -1728,6 +1729,7 @@ function App() {
   } | null>(null);
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sendWithEnter, setSendWithEnter] = useState(true);
   const [showStatusBar, setShowStatusBar] = useState(true);
@@ -2401,11 +2403,10 @@ function App() {
       insertIntoDraft(text);
     }
   };
-  const exitSession = () => {
+  const closeAppWindow = () => {
     setUserMenuOpen(false);
     setOpenMenu(null);
-    void signOut();
-    setEntered(false);
+    window.close();
   };
   const logOut = () => {
     setUserMenuOpen(false);
@@ -2501,24 +2502,11 @@ function App() {
         },
         {
           kind: "separator",
-          id: "file-session",
+          id: "file-close",
         },
         {
-          label: "Account",
-          disabled: localActor === undefined,
-          onSelect: () => {
-            setMembersOpen(true);
-            setUserMenuOpen(true);
-          },
-        },
-        {
-          label: "Log out",
-          disabled: !hasIdentity,
-          onSelect: logOut,
-        },
-        {
-          label: "Exit",
-          onSelect: exitSession,
+          label: "Exit Mod Bots",
+          onSelect: closeAppWindow,
         },
       ],
     },
@@ -2593,20 +2581,6 @@ function App() {
           label: "Remove attachment",
           disabled: attachment === null,
           onSelect: () => setAttachment(null),
-        },
-        {
-          kind: "separator",
-          id: "edit-find",
-        },
-        {
-          label: "Find in chat",
-          shortcut: "Ctrl+F",
-          onSelect: () => searchInput.current?.focus(),
-        },
-        {
-          label: "Clear search",
-          disabled: searchQuery.length === 0,
-          onSelect: () => setSearchQuery(""),
         },
       ],
     },
@@ -2706,9 +2680,32 @@ function App() {
       ],
     },
     {
+      id: "account",
+      label: "Account",
+      items: [
+        {
+          label: "Profile",
+          disabled: localActor === undefined,
+          onSelect: () => {
+            setMembersOpen(true);
+            setUserMenuOpen(true);
+          },
+        },
+        {
+          label: "Log out",
+          disabled: !hasIdentity,
+          onSelect: logOut,
+        },
+      ],
+    },
+    {
       id: "help",
       label: "Help",
       items: [
+        {
+          label: "Tutorial",
+          onSelect: () => setTutorialOpen(true),
+        },
         {
           label: "About Mod Bots",
           onSelect: () => setAboutOpen(true),
@@ -2794,6 +2791,7 @@ function App() {
       if (event.key === "Escape") {
         setOpenMenu(null);
         setAboutOpen(false);
+        setTutorialOpen(false);
         setSettingsOpen(false);
         setReplyTarget(null);
         setUserMenuOpen(false);
@@ -3860,6 +3858,10 @@ function App() {
           onOpenRoomInfoOnStartChange={setOpenRoomInfoOnStart}
           onClose={() => setSettingsOpen(false)}
         />
+      ) : null}
+
+      {tutorialOpen ? (
+        <HelpTutorialDialog onClose={() => setTutorialOpen(false)} />
       ) : null}
 
       {aboutOpen ? (
