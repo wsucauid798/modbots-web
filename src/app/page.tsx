@@ -612,7 +612,7 @@ const buildTimeline = (events: RoomEvent[]): TimelineItem[] => {
   return items;
 };
 
-type MenuId = "file" | "edit" | "view" | "help";
+type MenuId = "file" | "edit" | "view" | "chat" | "help";
 
 // Panel widths survive restarts the way the window's own frame does:
 // window-state remembers the frame, this remembers the panels.
@@ -2316,21 +2316,6 @@ function App() {
       event.currentTarget.form?.requestSubmit();
     }
   };
-  const activeTextInput = (): HTMLInputElement | HTMLTextAreaElement | null => {
-    const element = document.activeElement;
-
-    if (
-      element instanceof HTMLInputElement ||
-      element instanceof HTMLTextAreaElement
-    ) {
-      return element;
-    }
-
-    return null;
-  };
-  const focusComposer = () => {
-    composerRef.current?.focus();
-  };
   const selectDraft = () => {
     const element = composerRef.current;
 
@@ -2473,7 +2458,7 @@ function App() {
       label: "Edit",
       items: [
         {
-          label: "Copy",
+          label: "Copy draft",
           shortcut: "Ctrl+C",
           disabled: draft.length === 0,
           onSelect: () => void copyDraft().catch(() => undefined),
@@ -2487,11 +2472,6 @@ function App() {
         {
           kind: "separator",
           id: "edit-message",
-        },
-        {
-          label: "Message draft",
-          disabled: localActor === undefined || !apiConnected,
-          onSelect: focusComposer,
         },
         {
           label: "Select draft",
@@ -2545,7 +2525,7 @@ function App() {
         },
         {
           kind: "separator",
-          id: "view-room-surfaces",
+          id: "view-surfaces",
         },
         {
           label: "Moderation activity",
@@ -2570,13 +2550,6 @@ function App() {
           },
         },
         {
-          label: "Bot residents",
-          onSelect: () => {
-            setMembersOpen(true);
-            setAboutPanelOpen(true);
-          },
-        },
-        {
           kind: "separator",
           id: "view-window",
         },
@@ -2585,8 +2558,28 @@ function App() {
           shortcut: "F11",
           onSelect: toggleFullscreen,
         },
+      ],
+    },
+    {
+      id: "chat",
+      label: "Chat",
+      items: [
         {
-          label: "Refresh room",
+          label: "Search chat",
+          shortcut: "Ctrl+F",
+          onSelect: () => searchInput.current?.focus(),
+        },
+        {
+          label: "Clear search",
+          disabled: searchQuery.length === 0,
+          onSelect: () => setSearchQuery(""),
+        },
+        {
+          kind: "separator",
+          id: "chat-refresh",
+        },
+        {
+          label: "Refresh chat",
           onSelect: () => void refresh(),
         },
       ],
