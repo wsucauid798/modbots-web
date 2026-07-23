@@ -2925,62 +2925,55 @@ function App() {
                       </div>
                     </div>
                   ) : null}
-                  <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      localActor === undefined
-                        ? undefined
-                        : setUserMenuOpen((open) => !open)
-                    }
-                    disabled={localActor === undefined}
-                    aria-haspopup="dialog"
-                    aria-expanded={userMenuOpen}
-                    className={`group flex min-w-0 flex-1 items-center gap-3 rounded-[20px] border px-3 py-3 text-left shadow-[0_12px_36px_rgba(0,0,0,0.22)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-default ${
+                  <div
+                    className={`flex items-center rounded-[20px] border shadow-[0_12px_36px_rgba(0,0,0,0.22)] transition-colors ${
                       userMenuOpen
                         ? "border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.04))]"
                         : "border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] hover:border-white/10 hover:bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))]"
                     }`}
                   >
-                    <div className="relative">
-                      <ActorProfilePicture
-                        actor={localActor}
-                        actorId={localActor?.id ?? null}
-                        name={localActor?.display ?? "You"}
-                        size="md"
-                      />
-                      {localProfile?.online ? (
-                        <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0d0d0d] bg-zinc-200" />
-                      ) : null}
-                    </div>
-                    <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 text-zinc-100">
-                      {localActor?.display ??
-                        (hasIdentity ? "Preparing session..." : "Not joined")}
-                    </span>
-                    {localActor !== undefined ? (
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-black/20 text-zinc-500 transition-colors group-hover:text-zinc-300">
-                        <ChevronDown
-                          className={`h-4 w-4 transition-transform duration-200 ${
-                            userMenuOpen ? "rotate-180" : ""
-                          }`}
-                        />
-                      </span>
-                    ) : null}
-                  </button>
-                  {localActor !== undefined ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        void signOut();
-                      }}
-                      aria-label="Log out"
-                      title="Log out"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                      onClick={() =>
+                        localActor === undefined
+                          ? undefined
+                          : setUserMenuOpen((open) => !open)
+                      }
+                      disabled={localActor === undefined}
+                      aria-haspopup="dialog"
+                      aria-expanded={userMenuOpen}
+                      className="flex min-w-0 flex-1 items-center gap-3 rounded-[20px] px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-default"
                     >
-                      <LogOut className="h-4 w-4" />
+                      <div className="relative">
+                        <ActorProfilePicture
+                          actor={localActor}
+                          actorId={localActor?.id ?? null}
+                          name={localActor?.display ?? "You"}
+                          size="md"
+                        />
+                        {localProfile?.online ? (
+                          <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0d0d0d] bg-zinc-200" />
+                        ) : null}
+                      </div>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 text-zinc-100">
+                        {localActor?.display ??
+                          (hasIdentity ? "Preparing session..." : "Not joined")}
+                      </span>
                     </button>
-                  ) : null}
+                    {localActor !== undefined ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          void signOut();
+                        }}
+                        aria-label="Log out"
+                        title="Log out"
+                        className="mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-zinc-500 transition-colors hover:bg-white/[0.08] hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                      >
+                        <LogOut className="h-4 w-4" />
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </aside>
