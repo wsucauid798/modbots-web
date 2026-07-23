@@ -1669,6 +1669,29 @@ function StartScreen({
   );
 }
 
+function SessionRestoreScreen() {
+  return (
+    <section className="relative flex min-h-full flex-1 items-center justify-center overflow-hidden bg-[#0b0b0b] px-6 py-12 text-zinc-100">
+      <img
+        src={startScreenBg.src}
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover opacity-45"
+      />
+      <div className="relative z-10 flex flex-col items-center text-center">
+        <img
+          src={appLogo.src}
+          alt=""
+          className="h-[72px] w-[72px] rounded-2xl"
+        />
+        <h1 className="mt-7 text-4xl font-bold text-white">Mod Bots</h1>
+        <p className="mt-4 max-w-md text-lg leading-8 text-zinc-400">
+          Restoring your session...
+        </p>
+      </div>
+    </section>
+  );
+}
+
 function App() {
   const {
     actors,
@@ -2810,22 +2833,15 @@ function App() {
     }
   }, [hasIdentity]);
 
-  // No stored identity is ever presented at the door: offering someone
-  // else's account for one-click entry is an account takeover on a shared
-  // machine, and a returning guest is a new actor by design. Every launch
-  // starts signed out; remembered sign-in arrives with the browser
-  // hand-off, where the account site's own session does the remembering.
-  const droppedStaleIdentity = useRef(false);
-
   useEffect(() => {
-    if (!entered && !droppedStaleIdentity.current && localActor !== undefined) {
-      droppedStaleIdentity.current = true;
-      void signOut();
+    if (hasIdentity && localActor !== undefined) {
+      setEntered(true);
     }
-  }, [entered, localActor, signOut]);
+  }, [hasIdentity, localActor]);
 
-  // Presence joins once per identity after the person chooses to enter,
-  // whether they continued a stored session or just joined fresh.
+  // Presence joins once per identity after the person has entered, including
+  // restored sessions. Closing the app does not clear identity; logging out
+  // is the action that closes the session.
   useEffect(() => {
     if (
       entered &&
@@ -2908,12 +2924,16 @@ function App() {
 
       <div className="flex min-h-0 flex-1">
         {!entered ? (
-          <StartScreen
-            onSignedIn={(outcome) => {
-              adoptBrowserLogin(outcome);
-              setEntered(true);
-            }}
-          />
+          hasIdentity ? (
+            <SessionRestoreScreen />
+          ) : (
+            <StartScreen
+              onSignedIn={(outcome) => {
+                adoptBrowserLogin(outcome);
+                setEntered(true);
+              }}
+            />
+          )
         ) : (
           <>
             {membersOpen ? (
