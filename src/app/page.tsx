@@ -1,23 +1,6 @@
 "use client";
 
 import {
-  memo,
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import type {
-  FormEvent,
-  KeyboardEvent as ReactKeyboardEvent,
-  PointerEvent as ReactPointerEvent,
-  ReactNode,
-} from "react";
-import startScreenBg from "../assets/start-screen-bg.png";
-import appLogo from "../assets/logo.svg";
-import {
   ArrowRight,
   Bot,
   CalendarDays,
@@ -26,8 +9,8 @@ import {
   Copy,
   CornerUpLeft,
   DoorOpen,
-  LogOut,
   Image,
+  LogOut,
   MessageSquare,
   Mic,
   MicOff,
@@ -43,11 +26,31 @@ import {
   X,
 } from "lucide-react";
 import type {
+  FormEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  ReactNode,
+  PointerEvent as ReactPointerEvent,
+} from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import appLogo from "../assets/logo.svg";
+import startScreenBg from "../assets/start-screen-bg.png";
+import { AppSettingsDialog } from "../components/AppSettingsDialog";
+import { MenuBar } from "../components/MenuBar";
+import type {
   Actor,
   ActorType,
   ContentAddress,
   RoomEvent,
 } from "../data/contracts";
+import type { BrowserLoginOutcome, BrowserLoginSession } from "../data/oauth";
 import {
   accountBaseUrl,
   consumeEnterAfterLogin,
@@ -55,13 +58,9 @@ import {
   openInBrowser,
   resetBrowserLoginSession,
 } from "../data/oauth";
-import type { BrowserLoginOutcome, BrowserLoginSession } from "../data/oauth";
 import { isMutedError, mediaAssetDataUrl } from "../data/platform";
 import { actorLabel, actorRole } from "../data/room-state";
 import { useRoomActivity } from "../hooks/useRoomActivity";
-import { AppSettingsDialog } from "../components/AppSettingsDialog";
-import { MenuBar } from "../components/MenuBar";
-import type { MenuSpec } from "../components/MenuBar";
 
 const roomId = "global-lobby";
 const roomName = "Room";
@@ -611,8 +610,6 @@ const buildTimeline = (events: RoomEvent[]): TimelineItem[] => {
 
   return items;
 };
-
-type MenuId = "file" | "edit" | "view" | "chat" | "help";
 
 // Panel widths survive restarts the way the window's own frame does:
 // window-state remembers the frame, this remembers the panels.
@@ -1262,17 +1259,6 @@ function ParticipantRow({
   );
 }
 
-function ProfileStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-white/[0.08] bg-black/20 px-3 py-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-600">
-        {label}
-      </p>
-      <p className="mt-1 text-[13px] font-semibold text-zinc-100">{value}</p>
-    </div>
-  );
-}
-
 function ProfileDetailRow({
   icon,
   label,
@@ -1645,13 +1631,13 @@ function StartScreen({
         ) : null}
 
         <p className="mt-5 text-center text-sm text-zinc-500">
-          Already have an account?{" "}
           <a
             className="font-medium text-zinc-300 hover:text-white"
             href={`/login${uidQuery(uid)}`}
           >
             Log in
-          </a>
+          </a>{" "}
+          with an account or as a guest.
         </p>
 
         <p className="mt-6 text-center text-[11px] leading-5 text-zinc-400">
@@ -1689,6 +1675,15 @@ function SessionRestoreScreen() {
   );
 }
 
+const downloadBlob = (blob: Blob, fileName: string) => {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
 function App() {
   const {
     actors,
@@ -1698,6 +1693,7 @@ function App() {
     enterRoom,
     events,
     hasIdentity,
+    identityRestored,
     localActor,
     onlineActorIds,
     overview,
@@ -1747,7 +1743,6 @@ function App() {
     query: string;
     index: number;
   } | null>(null);
-  const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sendWithEnter, setSendWithEnter] = useState(true);
@@ -2132,34 +2127,110 @@ function App() {
 
     let messages = 0;
     let messagesToday = 0;
-    let replies = 0;
     let lastMessageAt: string | null = null;
     let joinedAt: string | null = null;
+    let joinedAtMs: number | null = null;
+    let roomMessagesSinceJoin = 0;
+    let repliesToMe = 0;
+    let moderationOnMe = 0;
+    let lastModerationOnMe: RoomEvent | null = null;
+    const mySequences = new Set<string>();
+    const partnerCounts = new Map<string, number>();
+    const othersSinceJoin = new Map<string, number>();
     const todayStart = startOfDay(new Date());
+    const countPartner = (actorId: string | null) => {
+      if (actorId !== null && actorId !== localActor.id) {
+        partnerCounts.set(actorId, (partnerCounts.get(actorId) ?? 0) + 1);
+      }
+    };
 
     for (const event of events.data ?? []) {
-      if (event.actorId !== localActor.id) {
+      if (event.type === "actor_joined") {
+        if (event.actorId === localActor.id) {
+          joinedAt = event.occurredAt;
+          joinedAtMs = new Date(event.occurredAt).getTime();
+        }
+
         continue;
       }
 
-      if (event.type === "actor_joined") {
-        joinedAt = event.occurredAt;
+      if (event.type === "moderation_action_applied") {
+        const target = payloadString(event, "targetEventSequence");
+
+        if (target !== null && mySequences.has(target)) {
+          moderationOnMe += 1;
+          lastModerationOnMe = event;
+        }
+
+        continue;
       }
 
       if (event.type !== "message_posted" && event.type !== "content_posted") {
         continue;
       }
 
-      messages += 1;
-      lastMessageAt = event.occurredAt;
+      const reply = payloadReply(event);
+      const replyTargetAuthor =
+        reply === null
+          ? null
+          : (messagesByContentItem.get(reply.contentItemId)?.actorId ?? null);
 
-      if (payloadReply(event) !== null) {
-        replies += 1;
+      if (event.actorId === localActor.id) {
+        messages += 1;
+        lastMessageAt = event.occurredAt;
+        mySequences.add(event.sequence);
+
+        if (reply !== null) {
+          countPartner(replyTargetAuthor);
+        }
+
+        if (new Date(event.occurredAt).getTime() >= todayStart) {
+          messagesToday += 1;
+        }
+
+        continue;
       }
 
-      if (new Date(event.occurredAt).getTime() >= todayStart) {
-        messagesToday += 1;
+      if (
+        joinedAtMs !== null &&
+        new Date(event.occurredAt).getTime() >= joinedAtMs
+      ) {
+        roomMessagesSinceJoin += 1;
+
+        if (event.actorId !== null) {
+          othersSinceJoin.set(
+            event.actorId,
+            (othersSinceJoin.get(event.actorId) ?? 0) + 1,
+          );
+        }
       }
+
+      if (replyTargetAuthor === localActor.id) {
+        repliesToMe += 1;
+        countPartner(event.actorId);
+      }
+    }
+
+    const topPartners = [...partnerCounts]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([actorId, count]) => ({
+        name: actorLabel(actorId, actors),
+        count,
+      }));
+    const mostActiveEntry = [...othersSinceJoin].sort((a, b) => b[1] - a[1])[0];
+    let lastModerationLabel: string | null = null;
+
+    if (lastModerationOnMe !== null) {
+      const applied: RoomEvent = lastModerationOnMe;
+      const action =
+        payloadString(applied, "action")?.replace(/_/g, " ") ??
+        "a moderation action";
+      const ruleId = payloadString(applied, "ruleId");
+      const ruleTitle = ruleId === null ? undefined : ruleTitles.get(ruleId);
+      lastModerationLabel = `${action[0].toUpperCase()}${action.slice(1)} by ${actorLabel(applied.actorId, actors)}${
+        ruleTitle === undefined ? "" : ` · rule: ${ruleTitle}`
+      }`;
     }
 
     return {
@@ -2174,10 +2245,25 @@ function App() {
       lastMessageAt,
       messages,
       messagesToday,
-      replies,
+      roomMessagesSinceJoin,
+      repliesToMe,
+      topPartners,
+      moderationOnMe,
+      lastModerationLabel,
+      mostActiveSinceJoin:
+        mostActiveEntry === undefined
+          ? null
+          : actorLabel(mostActiveEntry[0], actors),
       online: onlineActorIds.includes(localActor.id),
     };
-  }, [events.data, localActor, onlineActorIds]);
+  }, [
+    events.data,
+    localActor,
+    onlineActorIds,
+    actors,
+    messagesByContentItem,
+    ruleTitles,
+  ]);
   // Everyone a human can address: the bot residents, always in the room, and
   // any other human currently present. Yourself and the platform are never
   // addressees.
@@ -2316,66 +2402,68 @@ function App() {
       event.currentTarget.form?.requestSubmit();
     }
   };
-  const selectDraft = () => {
-    const element = composerRef.current;
-
-    if (element !== null) {
-      element.focus();
-      element.select();
+  const openAttachmentPicker = (accept: string) => {
+    if (attachmentInput.current !== null) {
+      attachmentInput.current.accept = accept;
+      attachmentInput.current.click();
     }
   };
-  const insertIntoDraft = (text: string) => {
-    const element = composerRef.current;
-
-    if (element === null) {
-      return;
-    }
-
-    const start = element.selectionStart;
-    const end = element.selectionEnd;
-    const next = `${draft.slice(0, start)}${text}${draft.slice(end)}`;
-    const caret = start + text.length;
-
-    setDraft(next);
-
-    requestAnimationFrame(() => {
-      element.focus();
-      element.setSelectionRange(caret, caret);
+  const takeScreenshot = async () => {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      audio: false,
+      video: true,
     });
-  };
-  const pasteIntoDraft = async () => {
-    const text = await navigator.clipboard.readText();
 
-    if (text.length > 0) {
-      insertIntoDraft(text);
+    try {
+      const video = document.createElement("video");
+      video.muted = true;
+      video.srcObject = stream;
+      await video.play();
+
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d")?.drawImage(video, 0, 0);
+
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/png"),
+      );
+
+      if (blob !== null) {
+        downloadBlob(
+          blob,
+          `mod-bots-screenshot-${new Date().toISOString().replace(/[:.]/g, "-")}.png`,
+        );
+      }
+    } finally {
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
     }
   };
-  const copyDraft = async () => {
-    if (draft.length > 0) {
-      await navigator.clipboard.writeText(draft);
-    }
-  };
-  const closeAppWindow = () => {
-    setUserMenuOpen(false);
-    setOpenMenu(null);
-    window.close();
+  const exportChatLog = () => {
+    const messages = (events.data ?? []).filter(
+      (event) =>
+        event.type === "message_posted" || event.type === "content_posted",
+    );
+    const lines = messages.map(
+      (event) =>
+        `[${new Date(event.occurredAt).toISOString()}] ${actorLabel(
+          event.actorId,
+          actors,
+        )}: ${eventContent(event)}`,
+    );
+    const contents = `${lines.join("\n\n")}\n`;
+
+    downloadBlob(
+      new Blob([contents], { type: "text/plain;charset=utf-8" }),
+      `mod-bots-chat-log-${new Date().toISOString().slice(0, 10)}.txt`,
+    );
   };
   const logOut = () => {
     setUserMenuOpen(false);
-    setOpenMenu(null);
     void signOut();
     setEntered(false);
-  };
-  const openExternal = (url: string) => {
-    window.open(url, "_blank", "noopener,noreferrer");
-  };
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement === null) {
-      void document.documentElement.requestFullscreen();
-      return;
-    }
-
-    void document.exitFullscreen();
   };
   const canSend =
     localActor !== undefined &&
@@ -2442,178 +2530,6 @@ function App() {
     }
   };
 
-  const menus: Array<MenuSpec<MenuId>> = [
-    {
-      id: "file",
-      label: "File",
-      items: [
-        {
-          label: "Exit Mod Bots",
-          onSelect: closeAppWindow,
-        },
-      ],
-    },
-    {
-      id: "edit",
-      label: "Edit",
-      items: [
-        {
-          label: "Copy draft",
-          shortcut: "Ctrl+C",
-          disabled: draft.length === 0,
-          onSelect: () => void copyDraft().catch(() => undefined),
-        },
-        {
-          label: "Paste into draft",
-          shortcut: "Ctrl+V",
-          disabled: localActor === undefined || !apiConnected,
-          onSelect: () => void pasteIntoDraft().catch(() => undefined),
-        },
-        {
-          kind: "separator",
-          id: "edit-message",
-        },
-        {
-          label: "Select draft",
-          disabled: draft.length === 0,
-          onSelect: selectDraft,
-        },
-        {
-          label: "Clear draft",
-          disabled: draft.length === 0,
-          onSelect: () => setDraft(""),
-        },
-        {
-          label: "Cancel reply",
-          disabled: replyTarget === null,
-          onSelect: () => setReplyTarget(null),
-        },
-        {
-          label: "Remove attachment",
-          disabled: attachment === null,
-          onSelect: () => setAttachment(null),
-        },
-      ],
-    },
-    {
-      id: "view",
-      label: "View",
-      items: [
-        {
-          label: "Activity: 7d",
-          checked: activityScope === "7d",
-          onSelect: () => {
-            setAboutPanelOpen(true);
-            setActivityScope("7d");
-          },
-        },
-        {
-          label: "Activity: 30d",
-          checked: activityScope === "30d",
-          onSelect: () => {
-            setAboutPanelOpen(true);
-            setActivityScope("30d");
-          },
-        },
-        {
-          label: "Activity: All",
-          checked: activityScope === "all",
-          onSelect: () => {
-            setAboutPanelOpen(true);
-            setActivityScope("all");
-          },
-        },
-        {
-          kind: "separator",
-          id: "view-surfaces",
-        },
-        {
-          label: "Moderation activity",
-          checked: openActivity.moderation === true,
-          onSelect: () => {
-            setAboutPanelOpen(true);
-            setOpenActivity((previous) => ({
-              ...previous,
-              moderation: !(previous.moderation ?? false),
-            }));
-          },
-        },
-        {
-          label: "Rules",
-          disabled: rules.data === undefined,
-          checked: openRuleId !== null,
-          onSelect: () => {
-            setAboutPanelOpen(true);
-            setOpenRuleId((current) =>
-              current === null ? (rules.data?.rules[0]?.id ?? null) : null,
-            );
-          },
-        },
-        {
-          kind: "separator",
-          id: "view-window",
-        },
-        {
-          label: "Toggle full screen",
-          shortcut: "F11",
-          onSelect: toggleFullscreen,
-        },
-      ],
-    },
-    {
-      id: "chat",
-      label: "Chat",
-      items: [
-        {
-          label: "Search chat",
-          shortcut: "Ctrl+F",
-          onSelect: () => searchInput.current?.focus(),
-        },
-        {
-          label: "Clear search",
-          disabled: searchQuery.length === 0,
-          onSelect: () => setSearchQuery(""),
-        },
-        {
-          kind: "separator",
-          id: "chat-refresh",
-        },
-        {
-          label: "Refresh chat",
-          onSelect: () => void refresh(),
-        },
-      ],
-    },
-    {
-      id: "help",
-      label: "Help",
-      items: [
-        {
-          label: "About Mod Bots",
-          onSelect: () => setAboutOpen(true),
-        },
-        {
-          label: "Participation Policy",
-          onSelect: () => openExternal(`${accountBaseUrl}/policy`),
-        },
-        {
-          label: "Report a bug",
-          onSelect: () =>
-            openExternal(
-              "https://github.com/wsucauid798/modbots-web/issues/new?labels=bug",
-            ),
-        },
-        {
-          label: "Request a feature",
-          onSelect: () =>
-            openExternal(
-              "https://github.com/wsucauid798/modbots-web/issues/new?labels=enhancement",
-            ),
-        },
-      ],
-    },
-  ];
-
   useEffect(() => {
     conversationPositioned.current = false;
     followLatestMessage.current = true;
@@ -2660,18 +2576,13 @@ function App() {
         return;
       }
 
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        event.key === "," &&
-        entered
-      ) {
+      if ((event.ctrlKey || event.metaKey) && event.key === "," && entered) {
         event.preventDefault();
         setSettingsOpen(true);
         return;
       }
 
       if (event.key === "Escape") {
-        setOpenMenu(null);
         setAboutOpen(false);
         setSettingsOpen(false);
         setReplyTarget(null);
@@ -2757,32 +2668,33 @@ function App() {
   };
 
   return (
-    <main
-      className={`modbots-fit flex h-screen flex-col overflow-hidden bg-[#0b0b0b] text-zinc-100 ${
-        entered ? "min-w-[880px]" : "min-w-0"
-      }`}
-    >
+    <div className="flex h-screen flex-col overflow-hidden bg-[#0b0b0b] text-zinc-100">
       {entered ? (
-        <MenuBar menus={menus} openMenu={openMenu} onOpenMenu={setOpenMenu} />
-      ) : null}
-      {userMenuOpen ? (
-        <div
-          className="fixed inset-0 z-20"
-          onClick={() => setUserMenuOpen(false)}
-          aria-hidden="true"
+        <MenuBar
+          onFindInChat={() => searchInput.current?.focus()}
+          onOpenPreferences={() => setSettingsOpen(true)}
+          onRefreshChatroom={() => void refresh()}
+          onTakeScreenshot={() =>
+            void takeScreenshot().catch(() => undefined)
+          }
+          onExportChatLog={exportChatLog}
         />
       ) : null}
-      {openMenu !== null ? (
-        <div
-          className="fixed inset-0 z-20"
-          onClick={() => setOpenMenu(null)}
-          aria-hidden="true"
-        />
-      ) : null}
-
-      <div className="flex min-h-0 flex-1">
+      <main
+        className={`modbots-fit flex min-h-0 flex-1 flex-col overflow-hidden ${
+          entered ? "modbots-fit-with-menu min-w-[880px]" : "min-w-0"
+        }`}
+      >
+        {userMenuOpen ? (
+          <div
+            className="fixed inset-0 z-20"
+            onClick={() => setUserMenuOpen(false)}
+            aria-hidden="true"
+          />
+        ) : null}
+        <div className="flex min-h-0 flex-1">
         {!entered ? (
-          hasIdentity ? (
+          !identityRestored || hasIdentity ? (
             <SessionRestoreScreen />
           ) : (
             <StartScreen
@@ -2838,7 +2750,7 @@ function App() {
                   localActor !== undefined &&
                   localProfile !== null ? (
                     <div
-                      className="absolute bottom-full left-3 right-3 z-30 mb-2 overflow-hidden rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(28,28,28,0.98),rgba(17,17,17,0.98))] shadow-[0_24px_80px_rgba(0,0,0,0.58)] backdrop-blur-xl"
+                      className="absolute bottom-full left-3 z-30 mb-2 max-h-[calc(100vh-120px)] w-[320px] max-w-[calc(100vw-24px)] overflow-y-auto rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(28,28,28,0.98),rgba(17,17,17,0.98))] shadow-[0_24px_80px_rgba(0,0,0,0.58)] backdrop-blur-xl"
                       role="dialog"
                       aria-label="Your profile"
                     >
@@ -2886,30 +2798,97 @@ function App() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 border-b border-white/[0.08] px-4 py-3">
-                        <ProfileStat
-                          label="Messages"
-                          value={localProfile.messages.toLocaleString()}
-                        />
-                        <ProfileStat
-                          label="Today"
-                          value={localProfile.messagesToday.toLocaleString()}
-                        />
-                        <ProfileStat
-                          label="Replies"
-                          value={localProfile.replies.toLocaleString()}
-                        />
-                        <ProfileStat
-                          label="Last active"
+                      <div className="space-y-1 px-4 py-3">
+                        <ProfileDetailRow
+                          icon={
+                            isMuted ? (
+                              <MicOff className="h-4 w-4" />
+                            ) : (
+                              <Shield className="h-4 w-4" />
+                            )
+                          }
+                          label="Standing"
                           value={
-                            localProfile.lastMessageAt === null
-                              ? "Listening"
-                              : formatTime(localProfile.lastMessageAt)
+                            isMuted
+                              ? "Muted right now"
+                              : localProfile.moderationOnMe === 0
+                                ? "Good standing · no mod bot has had to act on your messages"
+                                : `${localProfile.moderationOnMe.toLocaleString()} mod bot ${
+                                    localProfile.moderationOnMe === 1
+                                      ? "action"
+                                      : "actions"
+                                  } on your messages`
                           }
                         />
-                      </div>
-
-                      <div className="space-y-1 px-4 py-3">
+                        {localProfile.lastModerationLabel !== null ? (
+                          <ProfileDetailRow
+                            icon={<CircleAlert className="h-4 w-4" />}
+                            label="Latest mod bot action"
+                            value={localProfile.lastModerationLabel}
+                          />
+                        ) : null}
+                        <ProfileDetailRow
+                          icon={<DoorOpen className="h-4 w-4" />}
+                          label="This visit"
+                          value={
+                            localProfile.joinedAt === null
+                              ? "This session has not entered the room yet"
+                              : `Joined ${dateTimeLabel(localProfile.joinedAt)} · ${
+                                  localProfile.roomMessagesSinceJoin === 0
+                                    ? "the room has been quiet since"
+                                    : `${localProfile.roomMessagesSinceJoin.toLocaleString()} ${
+                                        localProfile.roomMessagesSinceJoin === 1
+                                          ? "message"
+                                          : "messages"
+                                      } since you arrived`
+                                }`
+                          }
+                          subtle={localProfile.joinedAt === null}
+                        />
+                        <ProfileDetailRow
+                          icon={<MessageSquare className="h-4 w-4" />}
+                          label="Conversation"
+                          value={
+                            localProfile.messages === 0
+                              ? localProfile.mostActiveSinceJoin === null
+                                ? "You're listening · jump in whenever you're ready"
+                                : `You're listening · ${localProfile.mostActiveSinceJoin} is leading the conversation`
+                              : [
+                                  `${localProfile.messages.toLocaleString()} ${
+                                    localProfile.messages === 1
+                                      ? "message"
+                                      : "messages"
+                                  } sent`,
+                                  ...(localProfile.repliesToMe > 0
+                                    ? [
+                                        `${localProfile.repliesToMe.toLocaleString()} ${
+                                          localProfile.repliesToMe === 1
+                                            ? "reply"
+                                            : "replies"
+                                        } to you`,
+                                      ]
+                                    : []),
+                                  ...(localProfile.lastMessageAt === null
+                                    ? []
+                                    : [
+                                        `last at ${formatTime(localProfile.lastMessageAt)}`,
+                                      ]),
+                                ].join(" · ")
+                          }
+                          subtle={localProfile.messages === 0}
+                        />
+                        {localProfile.topPartners.length > 0 ? (
+                          <ProfileDetailRow
+                            icon={<Users className="h-4 w-4" />}
+                            label="Talking with"
+                            value={localProfile.topPartners
+                              .map(
+                                (partner) =>
+                                  `${partner.name} (${partner.count.toLocaleString()})`,
+                              )
+                              .join(" and ")}
+                          />
+                        ) : null}
                         <ProfileDetailRow
                           icon={<CalendarDays className="h-4 w-4" />}
                           label={
@@ -2918,31 +2897,6 @@ function App() {
                               : "Identity created"
                           }
                           value={memberSince(localActor.createdAt)}
-                        />
-                        <ProfileDetailRow
-                          icon={<DoorOpen className="h-4 w-4" />}
-                          label="Room entry"
-                          value={
-                            localProfile.joinedAt === null
-                              ? "This session has not entered the room yet"
-                              : `Joined ${dateTimeLabel(localProfile.joinedAt)}`
-                          }
-                          subtle={localProfile.joinedAt === null}
-                        />
-                        <ProfileDetailRow
-                          icon={<MessageSquare className="h-4 w-4" />}
-                          label="Conversation"
-                          value={
-                            localProfile.lastMessageAt === null
-                              ? "No messages sent yet"
-                              : `Last message ${dateTimeLabel(localProfile.lastMessageAt)}`
-                          }
-                          subtle={localProfile.lastMessageAt === null}
-                        />
-                        <ProfileDetailRow
-                          icon={<Users className="h-4 w-4" />}
-                          label="People here now"
-                          value={`${visibleOnlineActors.filter((actor) => actor.type === "human").length} humans, ${chatBotCount} chat bots, ${modBotCount} mod bots`}
                         />
                       </div>
 
@@ -2968,30 +2922,10 @@ function App() {
                             </span>
                           </span>
                         </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setUserMenuOpen(false);
-                            void signOut();
-                          }}
-                          className="flex w-full items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-3 text-left text-[12px] text-zinc-300 transition-colors hover:border-white/12 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-                        >
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-black/20 text-zinc-400">
-                            <LogOut className="h-4 w-4" />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block font-semibold text-zinc-100">
-                              Log out
-                            </span>
-                            <span className="block text-[11px] text-zinc-500">
-                              Close this identity and return to the room door
-                            </span>
-                          </span>
-                        </button>
                       </div>
                     </div>
                   ) : null}
+                  <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() =>
@@ -3002,7 +2936,7 @@ function App() {
                     disabled={localActor === undefined}
                     aria-haspopup="dialog"
                     aria-expanded={userMenuOpen}
-                    className={`group flex w-full items-center gap-3 rounded-[20px] border px-3 py-3 text-left shadow-[0_12px_36px_rgba(0,0,0,0.22)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-default ${
+                    className={`group flex min-w-0 flex-1 items-center gap-3 rounded-[20px] border px-3 py-3 text-left shadow-[0_12px_36px_rgba(0,0,0,0.22)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-default ${
                       userMenuOpen
                         ? "border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.04))]"
                         : "border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] hover:border-white/10 hover:bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))]"
@@ -3019,35 +2953,9 @@ function App() {
                         <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0d0d0d] bg-zinc-200" />
                       ) : null}
                     </div>
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
-                        <span className="block min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 text-zinc-100">
-                          {localActor?.display ??
-                            (hasIdentity
-                              ? "Preparing session..."
-                              : "Not joined")}
-                        </span>
-                        {localProfile !== null ? (
-                          <span className="rounded-full border border-white/[0.08] bg-black/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
-                            {localActor?.registered ? "Account" : "Guest"}
-                          </span>
-                        ) : null}
-                      </span>
-                      {localProfile !== null ? (
-                        <span className="mt-1 block truncate text-[11px] leading-5 text-zinc-400">
-                          {localProfile.handleLabel}
-                        </span>
-                      ) : null}
-                      {localProfile !== null ? (
-                        <span className="mt-1 block truncate text-[11px] leading-4 text-zinc-600">
-                          {localProfile.online
-                            ? "In the room now"
-                            : "Away from the room"}
-                          {localProfile.messages > 0
-                            ? ` · ${localProfile.messages.toLocaleString()} messages`
-                            : " · listening"}
-                        </span>
-                      ) : null}
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 text-zinc-100">
+                      {localActor?.display ??
+                        (hasIdentity ? "Preparing session..." : "Not joined")}
                     </span>
                     {localActor !== undefined ? (
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-black/20 text-zinc-500 transition-colors group-hover:text-zinc-300">
@@ -3059,6 +2967,21 @@ function App() {
                       </span>
                     ) : null}
                   </button>
+                  {localActor !== undefined ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        void signOut();
+                      }}
+                      aria-label="Log out"
+                      title="Log out"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                    >
+                      <LogOut className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                  </div>
                 </div>
               </aside>
             ) : null}
@@ -3368,12 +3291,7 @@ function App() {
                           <button
                             type="button"
                             disabled={!apiConnected || localActor === undefined}
-                            onClick={() => {
-                              if (attachmentInput.current !== null) {
-                                attachmentInput.current.accept = "";
-                                attachmentInput.current.click();
-                              }
-                            }}
+                            onClick={() => openAttachmentPicker("")}
                             className="rounded-lg p-2.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed"
                             aria-label="Add files or media"
                             title="Add a file, image, audio, or video"
@@ -3383,12 +3301,7 @@ function App() {
                           <button
                             type="button"
                             disabled={!apiConnected || localActor === undefined}
-                            onClick={() => {
-                              if (attachmentInput.current !== null) {
-                                attachmentInput.current.accept = "image/*";
-                                attachmentInput.current.click();
-                              }
-                            }}
+                            onClick={() => openAttachmentPicker("image/*")}
                             className="rounded-lg p-2.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed"
                             aria-label="Add image"
                             title="Add an image"
@@ -3398,12 +3311,7 @@ function App() {
                           <button
                             type="button"
                             disabled={!apiConnected || localActor === undefined}
-                            onClick={() => {
-                              if (attachmentInput.current !== null) {
-                                attachmentInput.current.accept = "audio/*";
-                                attachmentInput.current.click();
-                              }
-                            }}
+                            onClick={() => openAttachmentPicker("audio/*")}
                             className="rounded-lg p-2.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed"
                             aria-label="Record voice message"
                             title="Add an audio recording"
@@ -3732,60 +3640,61 @@ function App() {
             ) : null}
           </>
         )}
-      </div>
-
-      {entered ? (
-        <StatusBar
-          connectionLabel={connectionLabel}
-          sending={sendMessage.isPending || sendContent.isPending}
-          muted={isMuted}
-          searchMatches={
-            searchQuery.trim().length > 0 ? roomEvents.length : null
-          }
-        />
-      ) : null}
-
-      {settingsOpen ? (
-        <AppSettingsDialog
-          sendWithEnter={sendWithEnter}
-          onSendWithEnterChange={setSendWithEnter}
-          onClose={() => setSettingsOpen(false)}
-        />
-      ) : null}
-
-      {aboutOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
-          onClick={() => setAboutOpen(false)}
-        >
-          <div
-            className="w-[360px] rounded-2xl border border-white/10 bg-[#111111] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.6)]"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center gap-3">
-              <img src={appLogo.src} alt="" className="h-11 w-11 rounded-xl" />
-              <div>
-                <p className="text-sm font-semibold text-white">
-                  Mod Bots Web
-                </p>
-                <p className="text-xs text-zinc-500">Version {appVersion}</p>
-              </div>
-            </div>
-            <p className="mt-4 text-sm leading-6 text-zinc-400">
-              A multimodal chatroom where humans and chat bots talk, and mod
-              bots learn to moderate from everything that happens.
-            </p>
-            <button
-              type="button"
-              onClick={() => setAboutOpen(false)}
-              className="mt-5 w-full rounded-xl bg-white py-2 text-sm font-semibold text-black transition hover:bg-zinc-200"
-            >
-              Close
-            </button>
-          </div>
         </div>
-      ) : null}
-    </main>
+
+        {entered ? (
+          <StatusBar
+            connectionLabel={connectionLabel}
+            sending={sendMessage.isPending || sendContent.isPending}
+            muted={isMuted}
+            searchMatches={
+              searchQuery.trim().length > 0 ? roomEvents.length : null
+            }
+          />
+        ) : null}
+
+        {settingsOpen ? (
+          <AppSettingsDialog
+            sendWithEnter={sendWithEnter}
+            onSendWithEnterChange={setSendWithEnter}
+            onClose={() => setSettingsOpen(false)}
+          />
+        ) : null}
+
+        {aboutOpen ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+            onClick={() => setAboutOpen(false)}
+          >
+            <div
+              className="w-[360px] rounded-2xl border border-white/10 bg-[#111111] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.6)]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center gap-3">
+                <img src={appLogo.src} alt="" className="h-11 w-11 rounded-xl" />
+                <div>
+                  <p className="text-sm font-semibold text-white">
+                    Mod Bots Web
+                  </p>
+                  <p className="text-xs text-zinc-500">Version {appVersion}</p>
+                </div>
+              </div>
+              <p className="mt-4 text-sm leading-6 text-zinc-400">
+                A multimodal chatroom where humans and chat bots talk, and mod
+                bots learn to moderate from everything that happens.
+              </p>
+              <button
+                type="button"
+                onClick={() => setAboutOpen(false)}
+                className="mt-5 w-full rounded-xl bg-white py-2 text-sm font-semibold text-black transition hover:bg-zinc-200"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </main>
+    </div>
   );
 }
 
