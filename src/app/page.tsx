@@ -49,18 +49,16 @@ import type {
   RoomEvent,
 } from "../data/contracts";
 import {
+  accountBaseUrl,
+  consumeEnterAfterLogin,
   getBrowserLoginSession,
   openInBrowser,
   resetBrowserLoginSession,
 } from "../data/oauth";
-import type {
-  BrowserLoginOutcome,
-  BrowserLoginSession,
-} from "../data/oauth";
+import type { BrowserLoginOutcome, BrowserLoginSession } from "../data/oauth";
 import { isMutedError, mediaAssetDataUrl } from "../data/platform";
 import { actorLabel, actorRole } from "../data/room-state";
 import { useRoomActivity } from "../hooks/useRoomActivity";
-import "../App.css";
 
 const roomId = "global-lobby";
 const roomName = "Room";
@@ -77,6 +75,29 @@ const conversationPageSize = 100;
 const participantsPanel = { min: 200, max: 360, initial: 260 };
 const aboutPanel = { min: 230, max: 400, initial: 280 };
 const panelResizeStep = 16;
+
+const useLaunchUid = (): string | null => {
+  const [uid, setUid] = useState<string | null>(null);
+
+  useEffect(() => {
+    setUid(new URLSearchParams(window.location.search).get("uid"));
+  }, []);
+
+  return uid;
+};
+
+const uidQuery = (uid: string | null): string =>
+  uid === null ? "" : `?uid=${encodeURIComponent(uid)}`;
+
+const useCurrentYear = (): number => {
+  const [year, setYear] = useState(() => new Date().getFullYear());
+
+  useEffect(() => {
+    setYear(new Date().getFullYear());
+  }, []);
+
+  return year;
+};
 
 const clampWidth = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
@@ -400,7 +421,9 @@ const startOfDay = (date: Date): number =>
   new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 
 const dayLabel = (date: Date): string => {
-  const diff = Math.round((startOfDay(new Date()) - startOfDay(date)) / 86_400_000);
+  const diff = Math.round(
+    (startOfDay(new Date()) - startOfDay(date)) / 86_400_000,
+  );
 
   if (diff === 0) {
     return "Today";
@@ -508,8 +531,7 @@ const moderationEventText = (
   }
 
   const action =
-    payloadString(event, "action")?.replace(/_/g, " ") ??
-    "a moderation action";
+    payloadString(event, "action")?.replace(/_/g, " ") ?? "a moderation action";
   const target = payloadString(event, "targetEventSequence");
   const ruleId = payloadString(event, "ruleId");
   const ruleTitle = ruleId === null ? undefined : ruleTitles.get(ruleId);
@@ -1023,12 +1045,19 @@ function ChatMessage({
   return (
     <article className="group relative mt-5 flex gap-3 px-4 py-1 hover:bg-white/[0.03] sm:px-6">
       <div className="w-8 shrink-0">
-        <ActorProfilePicture actor={actor} actorId={event.actorId} name={name} size="sm" />
+        <ActorProfilePicture
+          actor={actor}
+          actorId={event.actorId}
+          name={name}
+          size="sm"
+        />
       </div>
 
       <div className="min-w-0 flex-1 pr-20">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span className="text-[12px] font-semibold text-zinc-100">{name}</span>
+          <span className="text-[12px] font-semibold text-zinc-100">
+            {name}
+          </span>
           {actor?.type !== "human" && actor !== undefined ? (
             <span className="rounded-md border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-400">
               {formatRole(actor)}
@@ -1275,7 +1304,9 @@ function ParticipantRow({
         <p className="truncate text-[13px] font-medium text-zinc-200">
           {actor.display}
         </p>
-        <p className={`mt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] ${currentStatus.text}`}>
+        <p
+          className={`mt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] ${currentStatus.text}`}
+        >
           {currentStatus.label}
         </p>
       </div>
@@ -1283,13 +1314,7 @@ function ParticipantRow({
   );
 }
 
-function ProfileStat({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function ProfileStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-white/[0.08] bg-black/20 px-3 py-3">
       <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-600">
@@ -1346,6 +1371,9 @@ function StartScreen({
   const [loginError, setLoginError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const boundBrowserSession = useRef<BrowserLoginSession | null>(null);
+  const uid = useLaunchUid();
+  const currentYear = useCurrentYear();
+  const accountFormReady = uid !== null || loginUrl !== null;
 
   const loginFailureMessage = (error: unknown, fallback: string): string => {
     if (error instanceof Error) {
@@ -1380,10 +1408,8 @@ function StartScreen({
         boundBrowserSession.current = null;
         setSession((current) => (current === prepared ? null : current));
         setWaitingForBrowser(false);
-        setLoginError(loginFailureMessage(
-          error,
-          "The Browser log-in did not complete.",
-        ),
+        setLoginError(
+          loginFailureMessage(error, "The Browser log-in did not complete."),
         );
       },
     );
@@ -1399,7 +1425,7 @@ function StartScreen({
     setPreparingSession(true);
 
     try {
-      return bindBrowserSession(await getBrowserLoginSession());
+      return bindBrowserSession(await getBrowserLoginSession("register"));
     } finally {
       setPreparingSession(false);
     }
@@ -1410,7 +1436,7 @@ function StartScreen({
 
     setPreparingSession(true);
 
-    void getBrowserLoginSession()
+    void getBrowserLoginSession("register")
       .then((prepared) => {
         if (cancelled) {
           return;
@@ -1423,10 +1449,8 @@ function StartScreen({
           return;
         }
 
-        setLoginError(loginFailureMessage(
-          error,
-          "The log-in link could not be prepared.",
-        ),
+        setLoginError(
+          loginFailureMessage(error, "The log-in link could not be prepared."),
         );
       })
       .finally(() => {
@@ -1479,10 +1503,8 @@ function StartScreen({
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1_500);
     } catch (error) {
-      setLoginError(loginFailureMessage(
-        error,
-        "The log-in link could not be prepared.",
-      ),
+      setLoginError(
+        loginFailureMessage(error, "The log-in link could not be prepared."),
       );
     }
   };
@@ -1496,10 +1518,8 @@ function StartScreen({
       await openInBrowser(prepared.authorizeUrl);
     } catch (error) {
       setWaitingForBrowser(false);
-      setLoginError(loginFailureMessage(
-        error,
-        "The Browser log-in could not be started.",
-      ),
+      setLoginError(
+        loginFailureMessage(error, "The Browser log-in could not be started."),
       );
     }
   };
@@ -1519,19 +1539,16 @@ function StartScreen({
       const outcome = await prepared.completeWithCode(authCode);
       onSignedIn(outcome);
     } catch (error) {
-      setLoginError(loginFailureMessage(
-        error,
-        "The authorization code was not accepted.",
-      ),
+      setLoginError(
+        loginFailureMessage(error, "The authorization code was not accepted."),
       );
     } finally {
       setCodePending(false);
     }
   };
 
-
   return (
-    <section className="modbots-scroll relative flex min-h-0 flex-1 overflow-y-auto">
+    <section className="modbots-scroll relative flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-8 sm:px-6">
       <div
         className="pointer-events-none absolute inset-0 bg-cover bg-center"
         style={{ backgroundImage: `url(${startScreenBg.src})` }}
@@ -1549,7 +1566,7 @@ function StartScreen({
         }}
         aria-hidden="true"
       />
-      <div className="relative mx-auto flex w-full max-w-[420px] flex-col justify-center px-6 py-12">
+      <div className="relative mx-auto flex w-full max-w-[420px] flex-1 flex-col justify-center">
         <div className="text-center">
           <img
             src={appLogo.src}
@@ -1564,96 +1581,142 @@ function StartScreen({
           </p>
         </div>
 
-        <div className="mt-8 rounded-lg border border-white/10 bg-[#141414]/90 p-5 shadow-[0_16px_50px_rgba(0,0,0,0.5)] backdrop-blur-sm">
-          <h2 className="text-sm font-semibold text-zinc-100">Log in</h2>
-
-          <div className="mt-3 flex items-center gap-1.5 rounded-md border border-white/10 bg-[#0f0f0f] py-1.5 pl-3 pr-1.5">
-            <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-zinc-400">
-              {loginUrl ?? "Preparing your log-in link..."}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                void copyLoginUrl();
-              }}
-              disabled={preparingSession && loginUrl === null}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-not-allowed"
-              aria-label="Copy the log-in link"
-              title="Copy"
-            >
-              {copied ? (
-                <Check className="h-3.5 w-3.5" />
-              ) : (
-                <Copy className="h-3.5 w-3.5" />
-              )}
-            </button>
-          </div>
-
-          <div className="my-3 flex items-center gap-3">
-            <span className="h-px flex-1 bg-white/[0.08]" />
-            <span className="text-[11px] font-medium uppercase tracking-[0.1em] text-zinc-600">
-              or
-            </span>
-            <span className="h-px flex-1 bg-white/[0.08]" />
-          </div>
-
-          <form onSubmit={submitCode} autoComplete="off">
-            <div className="flex items-center gap-1.5 rounded-md border border-white/10 bg-[#0f0f0f] py-1.5 pl-3 pr-1.5 focus-within:border-white/25">
-              <input
-                value={authCode}
-                onChange={(event) => setAuthCode(event.currentTarget.value)}
-                placeholder="Authorization code (optional)"
-                autoComplete="off"
-                spellCheck={false}
-                className="min-w-0 flex-1 bg-transparent text-[13px] text-zinc-200 outline-none placeholder:text-zinc-600"
-              />
-              <button
-                type="submit"
-                disabled={authCode.trim().length === 0 || codePending || preparingSession}
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-zinc-500"
-                aria-label="Log in with the authorization code"
-                title="Log in with this code"
-              >
-                <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </form>
-
-          {loginError !== null ? (
-            <div className="mt-3 flex items-start gap-2 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-zinc-300">
-              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />
-              <span>{loginError}</span>
-            </div>
+        <form
+          method="post"
+          action={`${accountBaseUrl}/register`}
+          onSubmit={(event) => {
+            if (!accountFormReady) {
+              event.preventDefault();
+            }
+          }}
+          noValidate
+          className="mt-8 rounded-2xl border border-white/10 bg-[#141414] p-6 shadow-[0_16px_50px_rgba(0,0,0,0.35)]"
+        >
+          {uid !== null ? <input type="hidden" name="uid" value={uid} /> : null}
+          {uid === null && loginUrl !== null ? (
+            <input type="hidden" name="returnTo" value={loginUrl} />
           ) : null}
+          <input type="hidden" name="screen" value="register" />
+
+          <label
+            className="block text-sm font-medium text-zinc-300"
+            htmlFor="username"
+          >
+            Username
+          </label>
+          <input
+            className="mt-1.5 w-full rounded-xl border border-white/10 bg-[#0f0f0f] px-3 py-2.5 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-white/25"
+            id="username"
+            name="username"
+            type="text"
+            autoComplete="username"
+            autoFocus
+            aria-invalid="false"
+            defaultValue=""
+          />
+          <p className="mt-1 text-xs text-zinc-600">
+            3 to 64 letters, numbers, underscores, or hyphens. This is yours
+            alone.
+          </p>
+
+          <label
+            className="mt-4 block text-sm font-medium text-zinc-300"
+            htmlFor="displayName"
+          >
+            Display name{" "}
+            <span className="font-normal text-zinc-600">(optional)</span>
+          </label>
+          <input
+            className="mt-1.5 w-full rounded-xl border border-white/10 bg-[#0f0f0f] px-3 py-2.5 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-white/25"
+            id="displayName"
+            name="displayName"
+            type="text"
+            autoComplete="nickname"
+            defaultValue=""
+          />
+
+          <label
+            className="mt-4 block text-sm font-medium text-zinc-300"
+            htmlFor="password"
+          >
+            Password
+          </label>
+          <input
+            className="mt-1.5 w-full rounded-xl border border-white/10 bg-[#0f0f0f] px-3 py-2.5 text-[15px] text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-white/25"
+            id="password"
+            name="password"
+            type="password"
+            autoComplete="new-password"
+            aria-invalid="false"
+          />
+          <p className="mt-1 text-xs text-zinc-600">8 to 200 characters.</p>
+
+          <label className="mt-5 flex items-start gap-2.5 text-sm text-zinc-400">
+            <input
+              className="mt-0.5 h-4 w-4 rounded border-white/20 bg-[#0f0f0f]"
+              type="checkbox"
+              name="acceptPolicy"
+            />
+            <span>
+              I accept the{" "}
+              <a
+                className="font-medium text-zinc-200 underline decoration-zinc-600 underline-offset-2 hover:text-white"
+                href={`${accountBaseUrl}/policy`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Participation Policy
+              </a>
+            </span>
+          </label>
+          <p className="mt-1 min-h-[1rem] text-xs text-zinc-200" />
 
           <button
-            type="button"
-            onClick={continueInBrowser}
-            disabled={preparingSession || codePending}
-            className="mt-4 flex h-11 w-full items-center justify-center rounded-md bg-white px-4 text-sm font-semibold text-black transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#141414] disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+            className="mt-6 w-full rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-black transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:pointer-events-none disabled:opacity-60"
+            type="submit"
+            disabled={!accountFormReady}
           >
-            {preparingSession
-              ? "Preparing Browser Login..."
-              : waitingForBrowser
-                ? "Waiting for your Browser..."
-                : "Continue in Browser"}
+            Create account
           </button>
-          {waitingForBrowser && loginError === null ? (
-            <p className="mt-2 text-center text-[11px] leading-5 text-zinc-500">
-              Nothing happening? Click again to reopen your Browser.
-            </p>
-          ) : null}
-        </div>
+        </form>
+
+        {uid !== null ? (
+          <form
+            method="post"
+            action={`${accountBaseUrl}/login/cancel`}
+            className="mt-5 text-center"
+          >
+            <input type="hidden" name="uid" value={uid} />
+            <button
+              className="text-sm text-zinc-500 transition hover:text-zinc-300"
+              type="submit"
+            >
+              Cancel and return to the app
+            </button>
+          </form>
+        ) : null}
+
+        <p className="mt-5 text-center text-sm text-zinc-500">
+          Already have an account?{" "}
+          <a
+            className="font-medium text-zinc-300 hover:text-white"
+            href={`/login${uidQuery(uid)}`}
+          >
+            Log in
+          </a>
+        </p>
 
         <p className="mt-6 text-center text-[11px] leading-5 text-zinc-400">
           Humans come and go; the chat bots live here. Mod bots watch the room
           and learn to moderate from everything that happens.
         </p>
       </div>
+      <footer className="relative mx-auto mt-4 w-full max-w-[420px] shrink-0 text-center text-[11px] leading-5 text-zinc-600">
+        Copyright &copy; {currentYear} William Sawyerr. All rights reserved.
+      </footer>
     </section>
   );
 }
-
 
 function App() {
   const {
@@ -1701,18 +1764,18 @@ function App() {
     }));
   const [openRuleId, setOpenRuleId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [visibleEventCount, setVisibleEventCount] = useState(
-    conversationPageSize,
-  );
+  const [visibleEventCount, setVisibleEventCount] =
+    useState(conversationPageSize);
   const [replyTarget, setReplyTarget] = useState<RoomEvent | null>(null);
   const selectReplyTarget = useCallback(
     (event: RoomEvent) => setReplyTarget(event),
     [],
   );
   // The active participant picker in the composer, opened by typing `@`.
-  const [mention, setMention] = useState<{ query: string; index: number } | null>(
-    null,
-  );
+  const [mention, setMention] = useState<{
+    query: string;
+    index: number;
+  } | null>(null);
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -1817,7 +1880,10 @@ function App() {
         : "idle";
     };
 
-    const membersByType: Record<ActorType, Array<{ actor: Actor; status: ParticipantStatus }>> = {
+    const membersByType: Record<
+      ActorType,
+      Array<{ actor: Actor; status: ParticipantStatus }>
+    > = {
       human: onlineHumans.map((actor) => ({ actor, status: statusFor(actor) })),
       chat_bot: botResidents
         .filter((actor) => actor.type === "chat_bot")
@@ -1847,9 +1913,7 @@ function App() {
           return true;
         }
 
-        return (
-          eventContent(event).toLocaleLowerCase().includes(query)
-        );
+        return eventContent(event).toLocaleLowerCase().includes(query);
       });
   }, [events.data, searchQuery]);
   const hiddenEventCount = Math.max(0, roomEvents.length - visibleEventCount);
@@ -1936,9 +2000,7 @@ function App() {
               ? shortDate(at)
               : `Week of ${shortDate(at)}`,
         initial:
-          activityScope === "7d"
-            ? weekdayInitial.format(new Date(at))
-            : null,
+          activityScope === "7d" ? weekdayInitial.format(new Date(at)) : null,
       };
     });
     const messagesByType: Record<ActorType | "unknown", number> = {
@@ -1965,10 +2027,7 @@ function App() {
         continue;
       }
 
-      if (
-        event.type === "message_posted" ||
-        event.type === "content_posted"
-      ) {
+      if (event.type === "message_posted" || event.type === "content_posted") {
         messages += 1;
         const index = Math.min(
           bucketCount - 1,
@@ -2040,9 +2099,7 @@ function App() {
       talkedRows,
       topPosters,
       rangeStartLabel:
-        activityScope === "all"
-          ? shortDate(firstEventStart)
-          : shortDate(start),
+        activityScope === "all" ? shortDate(firstEventStart) : shortDate(start),
     };
   }, [events.data, actors, activityScope]);
   // Muted state is imperceptible until a send fails, so it is derived from
@@ -2089,10 +2146,7 @@ function App() {
         joinedAt = event.occurredAt;
       }
 
-      if (
-        event.type !== "message_posted" &&
-        event.type !== "content_posted"
-      ) {
+      if (event.type !== "message_posted" && event.type !== "content_posted") {
         continue;
       }
 
@@ -2109,7 +2163,9 @@ function App() {
     }
 
     return {
-      accountLabel: localActor.registered ? "Registered account" : "Guest session",
+      accountLabel: localActor.registered
+        ? "Registered account"
+        : "Guest session",
       handleLabel:
         localActor.registered && localActor.handle !== null
           ? `@${localActor.handle}`
@@ -2153,7 +2209,9 @@ function App() {
       consider(actors.get(actorId));
     }
 
-    return list.sort((left, right) => left.display.localeCompare(right.display));
+    return list.sort((left, right) =>
+      left.display.localeCompare(right.display),
+    );
   }, [actors, onlineActorIds, localActor]);
   const mentionOptions = useMemo((): MentionOption[] => {
     if (mention === null) {
@@ -2196,8 +2254,7 @@ function App() {
       return;
     }
 
-    const token =
-      option.kind === "room" ? "@room" : `@${option.actor.display}`;
+    const token = option.kind === "room" ? "@room" : `@${option.actor.display}`;
     const insertion = `${token} `;
     const before = draft.slice(0, found.start);
     const after = draft.slice(caret);
@@ -2427,6 +2484,12 @@ function App() {
   }, [entered, roomId]);
 
   useEffect(() => {
+    if (consumeEnterAfterLogin()) {
+      setEntered(true);
+    }
+  }, []);
+
+  useEffect(() => {
     setVisibleEventCount(conversationPageSize);
   }, [roomId, searchQuery]);
 
@@ -2520,9 +2583,7 @@ function App() {
     setMention(null);
     setMutedNotice(null);
     const replyContentItemId =
-      replyTarget === null
-        ? null
-        : payloadString(replyTarget, "contentItemId");
+      replyTarget === null ? null : payloadString(replyTarget, "contentItemId");
     const addressedTo = deriveAddressedTo(content, addressableParticipants);
 
     try {
@@ -2556,8 +2617,14 @@ function App() {
   };
 
   return (
-    <main className="flex h-screen min-w-[880px] flex-col overflow-hidden bg-[#0b0b0b] text-zinc-100">
-      <MenuBar menus={menus} openMenu={openMenu} onOpenMenu={setOpenMenu} />
+    <main
+      className={`modbots-fit flex h-screen flex-col overflow-hidden bg-[#0b0b0b] text-zinc-100 ${
+        entered ? "min-w-[880px]" : "min-w-0"
+      }`}
+    >
+      {entered ? (
+        <MenuBar menus={menus} openMenu={openMenu} onOpenMenu={setOpenMenu} />
+      ) : null}
       {userMenuOpen ? (
         <div
           className="fixed inset-0 z-20"
@@ -2583,894 +2650,921 @@ function App() {
           />
         ) : (
           <>
-        {membersOpen ? (
-          <aside
-            className="flex shrink-0 flex-col border-r border-white/[0.08] bg-[#0d0d0d]"
-            style={{ width: participantsWidth }}
-          >
-            <div className="flex h-[68px] shrink-0 items-center border-b border-white/[0.08] px-5">
-              <h1 className="truncate text-[15px] font-semibold text-white">
-                {roomName}
-              </h1>
-            </div>
-            <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.06] px-5 py-2 text-zinc-400">
-              <Users className="h-3.5 w-3.5 shrink-0" />
-              <span className="text-xs font-semibold uppercase tracking-[0.08em]">
-                Participants
-              </span>
-              <span className="ml-auto text-xs tabular-nums text-zinc-500">
-                {visibleOnlineActors.length}
-              </span>
-            </div>
-            <div className="modbots-scroll min-h-0 flex-1 overflow-y-auto p-3">
-              <div className="space-y-4">
-                {roster.map((group) => (
-                  <div key={group.type}>
-                    <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-600">
-                      {roleLabels[group.type]} · {group.members.length}
-                    </p>
-                    <div className="space-y-0.5">
-                      {group.members.map((member) => (
-                        <ParticipantRow
-                          key={member.actor.id}
-                          actor={member.actor}
-                          status={member.status}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="relative shrink-0 border-t border-white/[0.08] p-3">
-              {userMenuOpen && localActor !== undefined && localProfile !== null ? (
-                <div
-                  className="absolute bottom-full left-3 right-3 z-30 mb-2 overflow-hidden rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(28,28,28,0.98),rgba(17,17,17,0.98))] shadow-[0_24px_80px_rgba(0,0,0,0.58)] backdrop-blur-xl"
-                  role="dialog"
-                  aria-label="Your profile"
-                >
-                  <div className="border-b border-white/[0.08] bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.08),transparent_45%)] px-4 py-4">
-                    <div className="flex items-start gap-3">
-                      <ActorProfilePicture
-                        actor={localActor}
-                        actorId={localActor.id}
-                        name={localActor.display}
-                        size="lg"
-                      />
-                      <div className="min-w-0 flex-1 pt-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="truncate text-[18px] font-semibold leading-6 text-zinc-50">
-                            {localActor.display}
-                          </p>
-                          <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-300">
-                            {localProfile.accountLabel}
-                          </span>
-                        </div>
-                        <p className="mt-1 truncate text-[12px] text-zinc-400">
-                          {localProfile.handleLabel}
+            {membersOpen ? (
+              <aside
+                className="flex shrink-0 flex-col border-r border-white/[0.08] bg-[#0d0d0d]"
+                style={{ width: participantsWidth }}
+              >
+                <div className="flex h-[68px] shrink-0 items-center border-b border-white/[0.08] px-5">
+                  <h1 className="truncate text-[15px] font-semibold text-white">
+                    {roomName}
+                  </h1>
+                </div>
+                <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.06] px-5 py-2 text-zinc-400">
+                  <Users className="h-3.5 w-3.5 shrink-0" />
+                  <span className="text-xs font-semibold uppercase tracking-[0.08em]">
+                    Participants
+                  </span>
+                  <span className="ml-auto text-xs tabular-nums text-zinc-500">
+                    {visibleOnlineActors.length}
+                  </span>
+                </div>
+                <div className="modbots-scroll min-h-0 flex-1 overflow-y-auto p-3">
+                  <div className="space-y-4">
+                    {roster.map((group) => (
+                      <div key={group.type}>
+                        <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-600">
+                          {roleLabels[group.type]} · {group.members.length}
                         </p>
-                        <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-zinc-400">
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-black/20 px-2.5 py-1">
-                            <span
-                              className={`h-2 w-2 rounded-full ${
-                                localProfile.online ? "bg-zinc-200" : "border border-zinc-500"
-                              }`}
+                        <div className="space-y-0.5">
+                          {group.members.map((member) => (
+                            <ParticipantRow
+                              key={member.actor.id}
+                              actor={member.actor}
+                              status={member.status}
                             />
-                            {localProfile.online ? "In the room" : "Away"}
-                          </span>
-                          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-black/20 px-2.5 py-1">
-                            {isMuted ? (
-                              <MicOff className="h-3 w-3" />
-                            ) : (
-                              <Shield className="h-3 w-3" />
-                            )}
-                            {isMuted ? "Muted" : "Good standing"}
-                          </span>
+                          ))}
                         </div>
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 border-b border-white/[0.08] px-4 py-3">
-                    <ProfileStat
-                      label="Messages"
-                      value={localProfile.messages.toLocaleString()}
-                    />
-                    <ProfileStat
-                      label="Today"
-                      value={localProfile.messagesToday.toLocaleString()}
-                    />
-                    <ProfileStat
-                      label="Replies"
-                      value={localProfile.replies.toLocaleString()}
-                    />
-                    <ProfileStat
-                      label="Last active"
-                      value={
-                        localProfile.lastMessageAt === null
-                          ? "Listening"
-                          : formatTime(localProfile.lastMessageAt)
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-1 px-4 py-3">
-                    <ProfileDetailRow
-                      icon={<CalendarDays className="h-4 w-4" />}
-                      label={localActor.registered ? "Member since" : "Identity created"}
-                      value={memberSince(localActor.createdAt)}
-                    />
-                    <ProfileDetailRow
-                      icon={<DoorOpen className="h-4 w-4" />}
-                      label="Room entry"
-                      value={
-                        localProfile.joinedAt === null
-                          ? "This session has not entered the room yet"
-                          : `Joined ${dateTimeLabel(localProfile.joinedAt)}`
-                      }
-                      subtle={localProfile.joinedAt === null}
-                    />
-                    <ProfileDetailRow
-                      icon={<MessageSquare className="h-4 w-4" />}
-                      label="Conversation"
-                      value={
-                        localProfile.lastMessageAt === null
-                          ? "No messages sent yet"
-                          : `Last message ${dateTimeLabel(localProfile.lastMessageAt)}`
-                      }
-                      subtle={localProfile.lastMessageAt === null}
-                    />
-                    <ProfileDetailRow
-                      icon={<Users className="h-4 w-4" />}
-                      label="People here now"
-                      value={`${visibleOnlineActors.filter((actor) => actor.type === "human").length} humans, ${chatBotCount} chat bots, ${modBotCount} mod bots`}
-                    />
-                  </div>
-
-                  <div className="border-t border-white/[0.08] px-3 py-3">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        void signOut();
-                      }}
-                      className="flex w-full items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-3 text-left text-[12px] text-zinc-300 transition-colors hover:border-white/12 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-                    >
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-black/20 text-zinc-400">
-                        <LogOut className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-semibold text-zinc-100">
-                          Log out
-                        </span>
-                        <span className="block text-[11px] text-zinc-500">
-                          Close this identity and return to the room door
-                        </span>
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-              <button
-                type="button"
-                onClick={() =>
-                  localActor === undefined
-                    ? undefined
-                    : setUserMenuOpen((open) => !open)
-                }
-                disabled={localActor === undefined}
-                aria-haspopup="dialog"
-                aria-expanded={userMenuOpen}
-                className={`group flex w-full items-center gap-3 rounded-[20px] border px-3 py-3 text-left shadow-[0_12px_36px_rgba(0,0,0,0.22)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-default ${
-                  userMenuOpen
-                    ? "border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.04))]"
-                    : "border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] hover:border-white/10 hover:bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))]"
-                }`}
-              >
-                <div className="relative">
-                  <ActorProfilePicture
-                    actor={localActor}
-                    actorId={localActor?.id ?? null}
-                    name={localActor?.display ?? "You"}
-                    size="md"
-                  />
-                  {localProfile?.online ? (
-                    <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0d0d0d] bg-zinc-200" />
-                  ) : null}
-                </div>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="block min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 text-zinc-100">
-                      {localActor?.display ??
-                        (hasIdentity ? "Preparing session..." : "Not joined")}
-                    </span>
-                    {localProfile !== null ? (
-                      <span className="rounded-full border border-white/[0.08] bg-black/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
-                        {localActor?.registered ? "Account" : "Guest"}
-                      </span>
-                    ) : null}
-                  </span>
-                  {localProfile !== null ? (
-                    <span className="mt-1 block truncate text-[11px] leading-5 text-zinc-400">
-                      {localProfile.handleLabel}
-                    </span>
-                  ) : null}
-                  {localProfile !== null ? (
-                    <span className="mt-1 block truncate text-[11px] leading-4 text-zinc-600">
-                      {localProfile.online ? "In the room now" : "Away from the room"}
-                      {localProfile.messages > 0
-                        ? ` · ${localProfile.messages.toLocaleString()} messages`
-                        : " · listening"}
-                    </span>
-                  ) : null}
-                </span>
-                {localActor !== undefined ? (
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-black/20 text-zinc-500 transition-colors group-hover:text-zinc-300">
-                    <ChevronDown
-                      className={`h-4 w-4 transition-transform duration-200 ${
-                        userMenuOpen ? "rotate-180" : ""
-                      }`}
-                    />
-                  </span>
-                ) : null}
-              </button>
-            </div>
-          </aside>
-        ) : null}
-        {membersOpen ? (
-          <PanelResizeHandle
-            label="Resize the participants panel"
-            width={participantsWidth}
-            limits={participantsPanel}
-            onWidthChange={setParticipantsWidth}
-            grow={1}
-          />
-        ) : null}
-
-        <div className="flex min-w-0 flex-1 flex-col">
-          <header className="z-10 flex h-[68px] shrink-0 items-center gap-4 border-b border-white/[0.08] bg-[#0d0d0d] px-5">
-            <h2 className="shrink-0 text-[14px] font-semibold text-white">Chat</h2>
-            <div className="flex-1" />
-            <div className="flex h-9 w-[min(32vw,380px)] items-center gap-2 rounded-lg border border-white/10 bg-[#181818] px-3">
-              <Search className="h-4 w-4 shrink-0 text-zinc-500" />
-              <input
-                ref={searchInput}
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.currentTarget.value)}
-                placeholder="Search the chat"
-                className="min-w-0 flex-1 bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
-              />
-              {searchQuery.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="rounded-md p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-white"
-                  aria-label="Clear search"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
-            </div>
-            <div className="flex-1" />
-          </header>
-
-          {connectionProblem || error instanceof Error ? (
-            <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] bg-[#151515] px-7 py-2 text-xs text-zinc-300">
-              <span>
-                {historyUnavailable
-                  ? "We couldn't load the conversation right now. Try again in a moment."
-                  : error instanceof Error
-                  ? error.message
-                  : "The conversation is reconnecting. New messages may be delayed."}
-              </span>
-              <button
-                type="button"
-                onClick={() => void refresh()}
-                className="rounded-lg px-3 py-1.5 font-medium text-white hover:bg-white/[0.07]"
-              >
-                Retry
-              </button>
-            </div>
-          ) : null}
-
-          <div className="relative flex min-h-0 flex-1">
-            <section className="flex min-w-0 flex-1 flex-col">
-              <div
-                ref={conversationViewport}
-                onScroll={handleConversationScroll}
-                className="modbots-scroll min-h-0 flex-1 overflow-y-auto"
-              >
-                <div className="flex min-h-full flex-col justify-end py-3">
-                  {events.isLoading ? (
-                    <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
-                      Loading conversation...
-                    </div>
-                  ) : timeline.length === 0 ? (
-                    <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-[#171717] text-zinc-400">
-                        {searchQuery.length > 0 ? (
-                          <Search className="h-5 w-5" />
-                        ) : (
-                          <MessageSquare className="h-5 w-5" />
-                        )}
-                      </div>
-                      <h2 className="mt-4 text-base font-semibold text-zinc-200">
-                        {searchQuery.length > 0
-                          ? "No matching messages"
-                          : historyUnavailable
-                            ? "We couldn't load the conversation"
-                            : "Start the conversation"}
-                      </h2>
-                      <p className="mt-1 text-sm text-zinc-500">
-                        {searchQuery.length > 0
-                          ? "Try another word or phrase."
-                          : historyUnavailable
-                            ? "Try again in a moment."
-                            : "Messages from people and bots appear here together."}
-                      </p>
-                    </div>
-                  ) : (
-                    <ConversationTimeline
-                      actors={actors}
-                      items={timeline}
-                      localActorId={localActor?.id}
-                      mentionLabels={mentionLabels}
-                      messagesByContentItem={messagesByContentItem}
-                      onReply={selectReplyTarget}
-                      ruleTitles={ruleTitles}
-                    />
-                  )}
-                </div>
-              </div>
-
-              <div className="shrink-0 px-4 pb-4 pt-2 sm:px-7 sm:pb-5">
-                {attachmentError !== null ? (
-                  <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/10 bg-[#151515] px-3 py-2 text-xs text-zinc-300">
-                    <CircleAlert className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-                    <span className="flex-1">{attachmentError}</span>
-                    <button
-                      type="button"
-                      onClick={() => setAttachmentError(null)}
-                      className="rounded-md p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-white"
-                      aria-label="Dismiss attachment error"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : null}
-                {mutedNotice !== null ? (
-                  <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/10 bg-[#151515] px-3 py-2 text-xs text-zinc-300">
-                    <MicOff className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-                    <span className="flex-1">{mutedNotice}</span>
-                    <button
-                      type="button"
-                      onClick={() => setMutedNotice(null)}
-                      className="rounded-md p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-white"
-                      aria-label="Dismiss muted notice"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : null}
-                <form
-                  onSubmit={(event) => void submitMessage(event)}
-                  className="relative rounded-2xl border border-white/10 bg-[#171717] shadow-[0_16px_50px_rgba(0,0,0,0.35)] focus-within:border-white/20"
-                >
-                  {mention !== null && mentionOptions.length > 0 ? (
-                    <div className="absolute bottom-full left-0 mb-2 w-72 overflow-hidden rounded-xl border border-white/10 bg-[#181818] p-1 shadow-2xl">
-                      <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-600">
-                        Address someone
-                      </p>
-                      {mentionOptions.map((option, index) => {
-                        const active =
-                          index ===
-                          Math.min(mention.index, mentionOptions.length - 1);
-
-                        return (
-                          <button
-                            key={option.kind === "room" ? "room" : option.actor.id}
-                            type="button"
-                            onMouseDown={(pointerEvent) => {
-                              pointerEvent.preventDefault();
-                              applyMention(option);
-                            }}
-                            className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
-                              active
-                                ? "bg-white/[0.08] text-white"
-                                : "text-zinc-300 hover:bg-white/[0.05]"
-                            }`}
-                          >
-                            {option.kind === "room" ? (
-                              <>
-                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-zinc-300">
-                                  <Users className="h-4 w-4" />
-                                </span>
-                                <span className="min-w-0 flex-1">
-                                  <span className="block text-[13px] font-medium">
-                                    Room
-                                  </span>
-                                  <span className="block truncate text-[11px] text-zinc-500">
-                                    Everyone here
-                                  </span>
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <ActorProfilePicture
-                                  actor={option.actor}
-                                  actorId={option.actor.id}
-                                  name={option.actor.display}
-                                  size="sm"
-                                />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block truncate text-[13px] font-medium">
-                                    {option.actor.displayName}
-                                  </span>
-                                  <span className="block truncate text-[11px] text-zinc-500">
-                                    {actorRole(option.actor.id, actors)}
-                                  </span>
-                                </span>
-                              </>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                  {replyTarget !== null ? (
-                    <div className="flex items-center gap-2 border-b border-white/[0.08] px-4 py-2 text-xs">
-                      <CornerUpLeft className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
-                      <span className="shrink-0 text-zinc-400">
-                        Replying to{" "}
-                        <span className="font-medium text-zinc-200">
-                          {actorLabel(replyTarget.actorId, actors)}
-                        </span>
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-zinc-600">
-                        {eventContent(replyTarget)}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setReplyTarget(null)}
-                        className="rounded-md p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-white"
-                        aria-label="Cancel reply"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ) : null}
-                  {attachment !== null ? (
-                    <div className="mx-3 mt-2 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-zinc-300">
-                      <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {attachment.name}
-                      </span>
-                      <span className="text-zinc-500">
-                        {(attachment.size / 1_048_576).toFixed(1)} MB
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setAttachment(null)}
-                        className="rounded-md p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-white"
-                        aria-label="Remove attachment"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ) : null}
-                  <input
-                    ref={attachmentInput}
-                    type="file"
-                    className="hidden"
-                    onChange={(event) => {
-                      const file = event.currentTarget.files?.[0] ?? null;
-
-                      if (file !== null && file.size > 100 * 1024 * 1024) {
-                        setAttachment(null);
-                        setAttachmentError("Attachments cannot exceed 100 MB.");
-                      } else {
-                        setAttachment(file);
-                        setAttachmentError(null);
-                      }
-
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                  <textarea
-                    ref={composerRef}
-                    value={draft}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setDraft(value);
-                      updateMentionState(
-                        value,
-                        event.currentTarget.selectionStart ?? value.length,
-                      );
-                    }}
-                    onSelect={(event) =>
-                      updateMentionState(
-                        event.currentTarget.value,
-                        event.currentTarget.selectionStart ?? 0,
-                      )
-                    }
-                    onBlur={() => setMention(null)}
-                    onKeyDown={handleComposerKeyDown}
-                    rows={1}
-                    maxLength={4_000}
-                    disabled={localActor === undefined || !apiConnected}
-                    placeholder={
-                      localActor === undefined
-                        ? "Preparing your session..."
-                        : "Message the room"
-                    }
-                    className="max-h-40 min-h-[58px] w-full resize-none bg-transparent px-4 pb-2 pt-4 text-[14px] leading-6 text-zinc-100 outline-none placeholder:text-zinc-500 disabled:cursor-not-allowed"
-                  />
-                  <div className="flex items-center justify-between px-2 pb-2">
-                    <div className="flex items-center gap-0.5">
-                      <button
-                        type="button"
-                        disabled={!apiConnected || localActor === undefined}
-                        onClick={() => {
-                          if (attachmentInput.current !== null) {
-                            attachmentInput.current.accept = "";
-                            attachmentInput.current.click();
-                          }
-                        }}
-                        className="rounded-lg p-2.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed"
-                        aria-label="Add files or media"
-                        title="Add a file, image, audio, or video"
-                      >
-                        <Paperclip className="h-[18px] w-[18px]" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!apiConnected || localActor === undefined}
-                        onClick={() => {
-                          if (attachmentInput.current !== null) {
-                            attachmentInput.current.accept = "image/*";
-                            attachmentInput.current.click();
-                          }
-                        }}
-                        className="rounded-lg p-2.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed"
-                        aria-label="Add image"
-                        title="Add an image"
-                      >
-                        <Image className="h-[18px] w-[18px]" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!apiConnected || localActor === undefined}
-                        onClick={() => {
-                          if (attachmentInput.current !== null) {
-                            attachmentInput.current.accept = "audio/*";
-                            attachmentInput.current.click();
-                          }
-                        }}
-                        className="rounded-lg p-2.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed"
-                        aria-label="Record voice message"
-                        title="Add an audio recording"
-                      >
-                        <Mic className="h-[18px] w-[18px]" />
-                      </button>
-                      <span className="mx-1 h-5 w-px bg-white/10" />
-                      <button
-                        type="button"
-                        disabled
-                        className="rounded-lg p-2.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed"
-                        aria-label="Add reaction"
-                        title="Reactions are not connected yet"
-                      >
-                        <SmilePlus className="h-[18px] w-[18px]" />
-                      </button>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <span className="hidden text-[11px] text-zinc-600 sm:block">
-                        {draft.length > 0
-                          ? `${draft.length}/4000`
-                          : "Shift + Enter for a new line"}
-                      </span>
-                      <button
-                        type="submit"
-                        disabled={!canSend}
-                        className="flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-black transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#171717] disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
-                      >
-                        <span>Send</span>
-                        <Send className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                </form>
-              </div>
-            </section>
-
-          </div>
-        </div>
-
-        {aboutPanelOpen ? (
-          <PanelResizeHandle
-            label="Resize the about panel"
-            width={aboutWidth}
-            limits={aboutPanel}
-            onWidthChange={setAboutWidth}
-            grow={-1}
-          />
-        ) : null}
-        {aboutPanelOpen ? (
-          <aside
-            className="flex shrink-0 flex-col border-l border-white/[0.08] bg-[#0d0d0d]"
-            style={{ width: aboutWidth }}
-          >
-            <div className="flex h-[68px] shrink-0 items-center border-b border-white/[0.08] px-5" />
-            <div className="modbots-scroll min-h-0 flex-1 overflow-y-auto p-5">
-              <p className="text-[13px] font-semibold text-zinc-100">Mod Bots</p>
-              <p className="mt-1 text-[13px] leading-5 text-zinc-400">
-                {roomAbout}
-              </p>
-
-              <div className="mt-4 space-y-2.5 text-[13px] text-zinc-400">
-                <p className="flex items-start gap-2.5">
-                  <Bot className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
-                  <span>
-                    Home to{" "}
-                    <span className="text-zinc-200">
-                      {chatBotCount} chat {chatBotCount === 1 ? "bot" : "bots"}
-                    </span>
-                    , watched by{" "}
-                    <span className="text-zinc-200">
-                      {modBotCount} mod {modBotCount === 1 ? "bot" : "bots"}
-                    </span>
-                  </span>
-                </p>
-                <p className="flex items-start gap-2.5">
-                  <DoorOpen className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
-                  <span>Open to guests, anonymous or registered</span>
-                </p>
-                <p className="flex items-start gap-2.5">
-                  <Image className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
-                  <span>Text, images, audio, video, and files</span>
-                </p>
-              </div>
-
-              <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-600">
-                    Activity
-                  </p>
-                  <div
-                    className="flex rounded-md border border-white/[0.08] bg-[#0f0f0f] p-0.5"
-                    role="tablist"
-                    aria-label="Activity period"
-                  >
-                    {activityScopes.map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={activityScope === option.id}
-                        onClick={() => setActivityScope(option.id)}
-                        className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                          activityScope === option.id
-                            ? "bg-white/[0.1] text-white"
-                            : "text-zinc-500 hover:text-zinc-200"
-                        }`}
-                      >
-                        {option.label}
-                      </button>
                     ))}
                   </div>
                 </div>
-
-                {activityScope === "7d" ? (
-                  <div className="mt-2.5 grid grid-cols-7 gap-1.5">
-                    {activity.buckets.map((bucket, index) => (
-                      <div
-                        key={bucket.key}
-                        title={`${bucket.label} · ${bucket.count} ${
-                          bucket.count === 1 ? "message" : "messages"
-                        }`}
-                      >
-                        <div
-                          className={`h-7 rounded-md ${
-                            index === activity.buckets.length - 1
-                              ? "ring-1 ring-inset ring-white/40"
-                              : ""
-                          }`}
-                          style={{
-                            backgroundColor: bucketShade(
-                              bucket.count,
-                              activity.max,
-                            ),
-                          }}
-                        />
-                        <p
-                          className={`mt-1 text-center text-[9px] font-medium ${
-                            index === activity.buckets.length - 1
-                              ? "text-zinc-300"
-                              : "text-zinc-600"
-                          }`}
-                        >
-                          {bucket.initial}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <>
-                    <div className="mt-2.5 grid grid-cols-[repeat(auto-fill,minmax(12px,1fr))] gap-1">
-                      {activity.buckets.map((bucket, index) => (
-                        <div
-                          key={bucket.key}
-                          title={`${bucket.label} · ${bucket.count} ${
-                            bucket.count === 1 ? "message" : "messages"
-                          }`}
-                          className={`h-3 rounded-[3px] ${
-                            index === activity.buckets.length - 1
-                              ? "ring-1 ring-inset ring-white/40"
-                              : ""
-                          }`}
-                          style={{
-                            backgroundColor: bucketShade(
-                              bucket.count,
-                              activity.max,
-                            ),
-                          }}
-                        />
-                      ))}
-                    </div>
-                    <div className="mt-1 flex items-center justify-between text-[9px] font-medium text-zinc-600">
-                      <span>{activity.rangeStartLabel}</span>
-                      <span>Today</span>
-                    </div>
-                  </>
-                )}
-
-                <div className="mt-2.5">
-                  <ActivitySection
-                    label="Messages"
-                    value={activity.messages.toLocaleString()}
-                    open={openActivity.messages === true}
-                    onToggle={() => toggleActivitySection("messages")}
-                  >
-                    {activity.messageRows.length === 0 ? (
-                      <p className="text-[11px] text-zinc-600">
-                        None in this period.
-                      </p>
-                    ) : (
-                      activity.messageRows.map((row) => (
-                        <ActivityCountRow
-                          key={row.label}
-                          label={`From ${row.label.toLocaleLowerCase()}`}
-                          count={row.count}
-                        />
-                      ))
-                    )}
-                  </ActivitySection>
-                  <ActivitySection
-                    label="Moderation"
-                    value={activity.moderationTotal.toLocaleString()}
-                    open={openActivity.moderation === true}
-                    onToggle={() => toggleActivitySection("moderation")}
-                  >
-                    {activity.moderationRows.length === 0 ? (
-                      <p className="text-[11px] text-zinc-600">
-                        None in this period.
-                      </p>
-                    ) : (
-                      activity.moderationRows.map((row) => (
-                        <ActivityCountRow
-                          key={row.label}
-                          label={row.label}
-                          count={row.count}
-                        />
-                      ))
-                    )}
-                  </ActivitySection>
-                  <ActivitySection
-                    label="Participants"
-                    value={activity.talkedTotal.toLocaleString()}
-                    open={openActivity.talked === true}
-                    onToggle={() => toggleActivitySection("talked")}
-                  >
-                    {activity.topPosters.length === 0 ? (
-                      <p className="text-[11px] text-zinc-600">
-                        None in this period.
-                      </p>
-                    ) : (
-                      <>
-                        <p className="text-[11px] text-zinc-600">
-                          {activity.talkedRows
-                            .map(
-                              (row) =>
-                                `${row.count} ${row.label.toLocaleLowerCase()}`,
-                            )
-                            .join(" · ")}
-                        </p>
-                        {activity.topPosters.map((poster) => {
-                          const posterActor = actors.get(poster.actorId);
-                          const posterName = actorLabel(
-                            poster.actorId,
-                            actors,
-                          );
-
-                          return (
-                            <div
-                              key={poster.actorId}
-                              className="flex items-center gap-2"
-                            >
-                              <span
-                                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-white/10 text-[8px] font-semibold text-zinc-200"
-                                style={{
-                                  backgroundColor: shadeFor(poster.actorId),
-                                }}
-                              >
-                                {monogram(posterName)}
-                              </span>
-                              <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-300">
-                                {posterName}
-                              </span>
-                              {posterActor !== undefined &&
-                              posterActor.type !== "human" ? (
-                                <span className="shrink-0 text-zinc-600">
-                                  {roleBadgeIcon(posterActor.type)}
-                                </span>
-                              ) : null}
-                              <span className="shrink-0 text-[11px] tabular-nums text-zinc-400">
-                                {poster.count.toLocaleString()}
+                <div className="relative shrink-0 border-t border-white/[0.08] p-3">
+                  {userMenuOpen &&
+                  localActor !== undefined &&
+                  localProfile !== null ? (
+                    <div
+                      className="absolute bottom-full left-3 right-3 z-30 mb-2 overflow-hidden rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(28,28,28,0.98),rgba(17,17,17,0.98))] shadow-[0_24px_80px_rgba(0,0,0,0.58)] backdrop-blur-xl"
+                      role="dialog"
+                      aria-label="Your profile"
+                    >
+                      <div className="border-b border-white/[0.08] bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.08),transparent_45%)] px-4 py-4">
+                        <div className="flex items-start gap-3">
+                          <ActorProfilePicture
+                            actor={localActor}
+                            actorId={localActor.id}
+                            name={localActor.display}
+                            size="lg"
+                          />
+                          <div className="min-w-0 flex-1 pt-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-[18px] font-semibold leading-6 text-zinc-50">
+                                {localActor.display}
+                              </p>
+                              <span className="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-300">
+                                {localProfile.accountLabel}
                               </span>
                             </div>
-                          );
-                        })}
-                      </>
-                    )}
-                  </ActivitySection>
-                </div>
-              </div>
+                            <p className="mt-1 truncate text-[12px] text-zinc-400">
+                              {localProfile.handleLabel}
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-zinc-400">
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-black/20 px-2.5 py-1">
+                                <span
+                                  className={`h-2 w-2 rounded-full ${
+                                    localProfile.online
+                                      ? "bg-zinc-200"
+                                      : "border border-zinc-500"
+                                  }`}
+                                />
+                                {localProfile.online ? "In the room" : "Away"}
+                              </span>
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-black/20 px-2.5 py-1">
+                                {isMuted ? (
+                                  <MicOff className="h-3 w-3" />
+                                ) : (
+                                  <Shield className="h-3 w-3" />
+                                )}
+                                {isMuted ? "Muted" : "Good standing"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
 
-              {rules.data !== undefined ? (
-                <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-600">
-                    Rules
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-zinc-300">
-                    {rules.data.ethos}
-                  </p>
-                  <ol className="mt-2">
-                    {rules.data.rules.map((rule, index) => (
-                      <li key={rule.id}>
+                      <div className="grid grid-cols-2 gap-2 border-b border-white/[0.08] px-4 py-3">
+                        <ProfileStat
+                          label="Messages"
+                          value={localProfile.messages.toLocaleString()}
+                        />
+                        <ProfileStat
+                          label="Today"
+                          value={localProfile.messagesToday.toLocaleString()}
+                        />
+                        <ProfileStat
+                          label="Replies"
+                          value={localProfile.replies.toLocaleString()}
+                        />
+                        <ProfileStat
+                          label="Last active"
+                          value={
+                            localProfile.lastMessageAt === null
+                              ? "Listening"
+                              : formatTime(localProfile.lastMessageAt)
+                          }
+                        />
+                      </div>
+
+                      <div className="space-y-1 px-4 py-3">
+                        <ProfileDetailRow
+                          icon={<CalendarDays className="h-4 w-4" />}
+                          label={
+                            localActor.registered
+                              ? "Member since"
+                              : "Identity created"
+                          }
+                          value={memberSince(localActor.createdAt)}
+                        />
+                        <ProfileDetailRow
+                          icon={<DoorOpen className="h-4 w-4" />}
+                          label="Room entry"
+                          value={
+                            localProfile.joinedAt === null
+                              ? "This session has not entered the room yet"
+                              : `Joined ${dateTimeLabel(localProfile.joinedAt)}`
+                          }
+                          subtle={localProfile.joinedAt === null}
+                        />
+                        <ProfileDetailRow
+                          icon={<MessageSquare className="h-4 w-4" />}
+                          label="Conversation"
+                          value={
+                            localProfile.lastMessageAt === null
+                              ? "No messages sent yet"
+                              : `Last message ${dateTimeLabel(localProfile.lastMessageAt)}`
+                          }
+                          subtle={localProfile.lastMessageAt === null}
+                        />
+                        <ProfileDetailRow
+                          icon={<Users className="h-4 w-4" />}
+                          label="People here now"
+                          value={`${visibleOnlineActors.filter((actor) => actor.type === "human").length} humans, ${chatBotCount} chat bots, ${modBotCount} mod bots`}
+                        />
+                      </div>
+
+                      <div className="border-t border-white/[0.08] px-3 py-3">
                         <button
                           type="button"
-                          onClick={() =>
-                            setOpenRuleId(
-                              openRuleId === rule.id ? null : rule.id,
-                            )
-                          }
-                          className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left text-sm text-zinc-300 hover:bg-white/[0.04]"
+                          role="menuitem"
+                          onClick={() => {
+                            setUserMenuOpen(false);
+                            void signOut();
+                          }}
+                          className="flex w-full items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-3 text-left text-[12px] text-zinc-300 transition-colors hover:border-white/12 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
                         >
-                          <span className="w-4 shrink-0 text-xs tabular-nums text-zinc-600">
-                            {index + 1}
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-black/20 text-zinc-400">
+                            <LogOut className="h-4 w-4" />
                           </span>
-                          <span className="flex-1">{rule.title}</span>
-                          <ChevronDown
-                            className={`h-3.5 w-3.5 shrink-0 text-zinc-600 transition-transform ${
-                              openRuleId === rule.id ? "rotate-180" : ""
-                            }`}
-                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-semibold text-zinc-100">
+                              Log out
+                            </span>
+                            <span className="block text-[11px] text-zinc-500">
+                              Close this identity and return to the room door
+                            </span>
+                          </span>
                         </button>
-                        {openRuleId === rule.id ? (
-                          <p className="pb-2 pl-7 pr-1.5 text-xs leading-5 text-zinc-500">
-                            {rule.text}
-                          </p>
+                      </div>
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      localActor === undefined
+                        ? undefined
+                        : setUserMenuOpen((open) => !open)
+                    }
+                    disabled={localActor === undefined}
+                    aria-haspopup="dialog"
+                    aria-expanded={userMenuOpen}
+                    className={`group flex w-full items-center gap-3 rounded-[20px] border px-3 py-3 text-left shadow-[0_12px_36px_rgba(0,0,0,0.22)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-default ${
+                      userMenuOpen
+                        ? "border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.04))]"
+                        : "border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] hover:border-white/10 hover:bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))]"
+                    }`}
+                  >
+                    <div className="relative">
+                      <ActorProfilePicture
+                        actor={localActor}
+                        actorId={localActor?.id ?? null}
+                        name={localActor?.display ?? "You"}
+                        size="md"
+                      />
+                      {localProfile?.online ? (
+                        <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0d0d0d] bg-zinc-200" />
+                      ) : null}
+                    </div>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="block min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 text-zinc-100">
+                          {localActor?.display ??
+                            (hasIdentity
+                              ? "Preparing session..."
+                              : "Not joined")}
+                        </span>
+                        {localProfile !== null ? (
+                          <span className="rounded-full border border-white/[0.08] bg-black/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                            {localActor?.registered ? "Account" : "Guest"}
+                          </span>
                         ) : null}
-                      </li>
-                    ))}
-                  </ol>
+                      </span>
+                      {localProfile !== null ? (
+                        <span className="mt-1 block truncate text-[11px] leading-5 text-zinc-400">
+                          {localProfile.handleLabel}
+                        </span>
+                      ) : null}
+                      {localProfile !== null ? (
+                        <span className="mt-1 block truncate text-[11px] leading-4 text-zinc-600">
+                          {localProfile.online
+                            ? "In the room now"
+                            : "Away from the room"}
+                          {localProfile.messages > 0
+                            ? ` · ${localProfile.messages.toLocaleString()} messages`
+                            : " · listening"}
+                        </span>
+                      ) : null}
+                    </span>
+                    {localActor !== undefined ? (
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-black/20 text-zinc-500 transition-colors group-hover:text-zinc-300">
+                        <ChevronDown
+                          className={`h-4 w-4 transition-transform duration-200 ${
+                            userMenuOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      </span>
+                    ) : null}
+                  </button>
+                </div>
+              </aside>
+            ) : null}
+            {membersOpen ? (
+              <PanelResizeHandle
+                label="Resize the participants panel"
+                width={participantsWidth}
+                limits={participantsPanel}
+                onWidthChange={setParticipantsWidth}
+                grow={1}
+              />
+            ) : null}
+
+            <div className="flex min-w-0 flex-1 flex-col">
+              <header className="z-10 flex h-[68px] shrink-0 items-center gap-4 border-b border-white/[0.08] bg-[#0d0d0d] px-5">
+                <h2 className="shrink-0 text-[14px] font-semibold text-white">
+                  Chat
+                </h2>
+                <div className="flex-1" />
+                <div className="flex h-9 w-[min(32vw,380px)] items-center gap-2 rounded-lg border border-white/10 bg-[#181818] px-3">
+                  <Search className="h-4 w-4 shrink-0 text-zinc-500" />
+                  <input
+                    ref={searchInput}
+                    value={searchQuery}
+                    onChange={(event) =>
+                      setSearchQuery(event.currentTarget.value)
+                    }
+                    placeholder="Search the chat"
+                    className="min-w-0 flex-1 bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
+                  />
+                  {searchQuery.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery("")}
+                      className="rounded-md p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-white"
+                      aria-label="Clear search"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex-1" />
+              </header>
+
+              {connectionProblem || error instanceof Error ? (
+                <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] bg-[#151515] px-7 py-2 text-xs text-zinc-300">
+                  <span>
+                    {historyUnavailable
+                      ? "We couldn't load the conversation right now. Try again in a moment."
+                      : error instanceof Error
+                        ? error.message
+                        : "The conversation is reconnecting. New messages may be delayed."}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void refresh()}
+                    className="rounded-lg px-3 py-1.5 font-medium text-white hover:bg-white/[0.07]"
+                  >
+                    Retry
+                  </button>
                 </div>
               ) : null}
+
+              <div className="relative flex min-h-0 flex-1">
+                <section className="flex min-w-0 flex-1 flex-col">
+                  <div
+                    ref={conversationViewport}
+                    onScroll={handleConversationScroll}
+                    className="modbots-scroll min-h-0 flex-1 overflow-y-auto"
+                  >
+                    <div className="flex min-h-full flex-col justify-end py-3">
+                      {events.isLoading ? (
+                        <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
+                          Loading conversation...
+                        </div>
+                      ) : timeline.length === 0 ? (
+                        <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
+                          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-[#171717] text-zinc-400">
+                            {searchQuery.length > 0 ? (
+                              <Search className="h-5 w-5" />
+                            ) : (
+                              <MessageSquare className="h-5 w-5" />
+                            )}
+                          </div>
+                          <h2 className="mt-4 text-base font-semibold text-zinc-200">
+                            {searchQuery.length > 0
+                              ? "No matching messages"
+                              : historyUnavailable
+                                ? "We couldn't load the conversation"
+                                : "Start the conversation"}
+                          </h2>
+                          <p className="mt-1 text-sm text-zinc-500">
+                            {searchQuery.length > 0
+                              ? "Try another word or phrase."
+                              : historyUnavailable
+                                ? "Try again in a moment."
+                                : "Messages from people and bots appear here together."}
+                          </p>
+                        </div>
+                      ) : (
+                        <ConversationTimeline
+                          actors={actors}
+                          items={timeline}
+                          localActorId={localActor?.id}
+                          mentionLabels={mentionLabels}
+                          messagesByContentItem={messagesByContentItem}
+                          onReply={selectReplyTarget}
+                          ruleTitles={ruleTitles}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 px-4 pb-4 pt-2 sm:px-7 sm:pb-5">
+                    {attachmentError !== null ? (
+                      <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/10 bg-[#151515] px-3 py-2 text-xs text-zinc-300">
+                        <CircleAlert className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                        <span className="flex-1">{attachmentError}</span>
+                        <button
+                          type="button"
+                          onClick={() => setAttachmentError(null)}
+                          className="rounded-md p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-white"
+                          aria-label="Dismiss attachment error"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : null}
+                    {mutedNotice !== null ? (
+                      <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/10 bg-[#151515] px-3 py-2 text-xs text-zinc-300">
+                        <MicOff className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                        <span className="flex-1">{mutedNotice}</span>
+                        <button
+                          type="button"
+                          onClick={() => setMutedNotice(null)}
+                          className="rounded-md p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-white"
+                          aria-label="Dismiss muted notice"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : null}
+                    <form
+                      onSubmit={(event) => void submitMessage(event)}
+                      className="relative rounded-2xl border border-white/10 bg-[#171717] shadow-[0_16px_50px_rgba(0,0,0,0.35)] focus-within:border-white/20"
+                    >
+                      {mention !== null && mentionOptions.length > 0 ? (
+                        <div className="absolute bottom-full left-0 mb-2 w-72 overflow-hidden rounded-xl border border-white/10 bg-[#181818] p-1 shadow-2xl">
+                          <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-zinc-600">
+                            Address someone
+                          </p>
+                          {mentionOptions.map((option, index) => {
+                            const active =
+                              index ===
+                              Math.min(
+                                mention.index,
+                                mentionOptions.length - 1,
+                              );
+
+                            return (
+                              <button
+                                key={
+                                  option.kind === "room"
+                                    ? "room"
+                                    : option.actor.id
+                                }
+                                type="button"
+                                onMouseDown={(pointerEvent) => {
+                                  pointerEvent.preventDefault();
+                                  applyMention(option);
+                                }}
+                                className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${
+                                  active
+                                    ? "bg-white/[0.08] text-white"
+                                    : "text-zinc-300 hover:bg-white/[0.05]"
+                                }`}
+                              >
+                                {option.kind === "room" ? (
+                                  <>
+                                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-zinc-300">
+                                      <Users className="h-4 w-4" />
+                                    </span>
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block text-[13px] font-medium">
+                                        Room
+                                      </span>
+                                      <span className="block truncate text-[11px] text-zinc-500">
+                                        Everyone here
+                                      </span>
+                                    </span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <ActorProfilePicture
+                                      actor={option.actor}
+                                      actorId={option.actor.id}
+                                      name={option.actor.display}
+                                      size="sm"
+                                    />
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block truncate text-[13px] font-medium">
+                                        {option.actor.displayName}
+                                      </span>
+                                      <span className="block truncate text-[11px] text-zinc-500">
+                                        {actorRole(option.actor.id, actors)}
+                                      </span>
+                                    </span>
+                                  </>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                      {replyTarget !== null ? (
+                        <div className="flex items-center gap-2 border-b border-white/[0.08] px-4 py-2 text-xs">
+                          <CornerUpLeft className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                          <span className="shrink-0 text-zinc-400">
+                            Replying to{" "}
+                            <span className="font-medium text-zinc-200">
+                              {actorLabel(replyTarget.actorId, actors)}
+                            </span>
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-zinc-600">
+                            {eventContent(replyTarget)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setReplyTarget(null)}
+                            className="rounded-md p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-white"
+                            aria-label="Cancel reply"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : null}
+                      {attachment !== null ? (
+                        <div className="mx-3 mt-2 flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-zinc-300">
+                          <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate">
+                            {attachment.name}
+                          </span>
+                          <span className="text-zinc-500">
+                            {(attachment.size / 1_048_576).toFixed(1)} MB
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setAttachment(null)}
+                            className="rounded-md p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-white"
+                            aria-label="Remove attachment"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : null}
+                      <input
+                        ref={attachmentInput}
+                        type="file"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0] ?? null;
+
+                          if (file !== null && file.size > 100 * 1024 * 1024) {
+                            setAttachment(null);
+                            setAttachmentError(
+                              "Attachments cannot exceed 100 MB.",
+                            );
+                          } else {
+                            setAttachment(file);
+                            setAttachmentError(null);
+                          }
+
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      <textarea
+                        ref={composerRef}
+                        value={draft}
+                        onChange={(event) => {
+                          const value = event.currentTarget.value;
+                          setDraft(value);
+                          updateMentionState(
+                            value,
+                            event.currentTarget.selectionStart ?? value.length,
+                          );
+                        }}
+                        onSelect={(event) =>
+                          updateMentionState(
+                            event.currentTarget.value,
+                            event.currentTarget.selectionStart ?? 0,
+                          )
+                        }
+                        onBlur={() => setMention(null)}
+                        onKeyDown={handleComposerKeyDown}
+                        rows={1}
+                        maxLength={4_000}
+                        disabled={localActor === undefined || !apiConnected}
+                        placeholder={
+                          localActor === undefined
+                            ? "Preparing your session..."
+                            : "Message the room"
+                        }
+                        className="max-h-40 min-h-[58px] w-full resize-none bg-transparent px-4 pb-2 pt-4 text-[14px] leading-6 text-zinc-100 outline-none placeholder:text-zinc-500 disabled:cursor-not-allowed"
+                      />
+                      <div className="flex items-center justify-between px-2 pb-2">
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            disabled={!apiConnected || localActor === undefined}
+                            onClick={() => {
+                              if (attachmentInput.current !== null) {
+                                attachmentInput.current.accept = "";
+                                attachmentInput.current.click();
+                              }
+                            }}
+                            className="rounded-lg p-2.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed"
+                            aria-label="Add files or media"
+                            title="Add a file, image, audio, or video"
+                          >
+                            <Paperclip className="h-[18px] w-[18px]" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!apiConnected || localActor === undefined}
+                            onClick={() => {
+                              if (attachmentInput.current !== null) {
+                                attachmentInput.current.accept = "image/*";
+                                attachmentInput.current.click();
+                              }
+                            }}
+                            className="rounded-lg p-2.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed"
+                            aria-label="Add image"
+                            title="Add an image"
+                          >
+                            <Image className="h-[18px] w-[18px]" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!apiConnected || localActor === undefined}
+                            onClick={() => {
+                              if (attachmentInput.current !== null) {
+                                attachmentInput.current.accept = "audio/*";
+                                attachmentInput.current.click();
+                              }
+                            }}
+                            className="rounded-lg p-2.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed"
+                            aria-label="Record voice message"
+                            title="Add an audio recording"
+                          >
+                            <Mic className="h-[18px] w-[18px]" />
+                          </button>
+                          <span className="mx-1 h-5 w-px bg-white/10" />
+                          <button
+                            type="button"
+                            disabled
+                            className="rounded-lg p-2.5 text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-200 disabled:cursor-not-allowed"
+                            aria-label="Add reaction"
+                            title="Reactions are not connected yet"
+                          >
+                            <SmilePlus className="h-[18px] w-[18px]" />
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <span className="hidden text-[11px] text-zinc-600 sm:block">
+                            {draft.length > 0
+                              ? `${draft.length}/4000`
+                              : "Shift + Enter for a new line"}
+                          </span>
+                          <button
+                            type="submit"
+                            disabled={!canSend}
+                            className="flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-black transition hover:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#171717] disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-500"
+                          >
+                            <span>Send</span>
+                            <Send className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  </div>
+                </section>
+              </div>
             </div>
-          </aside>
-        ) : null}
+
+            {aboutPanelOpen ? (
+              <PanelResizeHandle
+                label="Resize the about panel"
+                width={aboutWidth}
+                limits={aboutPanel}
+                onWidthChange={setAboutWidth}
+                grow={-1}
+              />
+            ) : null}
+            {aboutPanelOpen ? (
+              <aside
+                className="flex shrink-0 flex-col border-l border-white/[0.08] bg-[#0d0d0d]"
+                style={{ width: aboutWidth }}
+              >
+                <div className="flex h-[68px] shrink-0 items-center border-b border-white/[0.08] px-5" />
+                <div className="modbots-scroll min-h-0 flex-1 overflow-y-auto p-5">
+                  <p className="text-[13px] font-semibold text-zinc-100">
+                    Mod Bots
+                  </p>
+                  <p className="mt-1 text-[13px] leading-5 text-zinc-400">
+                    {roomAbout}
+                  </p>
+
+                  <div className="mt-4 space-y-2.5 text-[13px] text-zinc-400">
+                    <p className="flex items-start gap-2.5">
+                      <Bot className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
+                      <span>
+                        Home to{" "}
+                        <span className="text-zinc-200">
+                          {chatBotCount} chat{" "}
+                          {chatBotCount === 1 ? "bot" : "bots"}
+                        </span>
+                        , watched by{" "}
+                        <span className="text-zinc-200">
+                          {modBotCount} mod {modBotCount === 1 ? "bot" : "bots"}
+                        </span>
+                      </span>
+                    </p>
+                    <p className="flex items-start gap-2.5">
+                      <DoorOpen className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
+                      <span>Open to guests, anonymous or registered</span>
+                    </p>
+                    <p className="flex items-start gap-2.5">
+                      <Image className="mt-0.5 h-4 w-4 shrink-0 text-zinc-500" />
+                      <span>Text, images, audio, video, and files</span>
+                    </p>
+                  </div>
+
+                  <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-600">
+                        Activity
+                      </p>
+                      <div
+                        className="flex rounded-md border border-white/[0.08] bg-[#0f0f0f] p-0.5"
+                        role="tablist"
+                        aria-label="Activity period"
+                      >
+                        {activityScopes.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={activityScope === option.id}
+                            onClick={() => setActivityScope(option.id)}
+                            className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                              activityScope === option.id
+                                ? "bg-white/[0.1] text-white"
+                                : "text-zinc-500 hover:text-zinc-200"
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {activityScope === "7d" ? (
+                      <div className="mt-2.5 grid grid-cols-7 gap-1.5">
+                        {activity.buckets.map((bucket, index) => (
+                          <div
+                            key={bucket.key}
+                            title={`${bucket.label} · ${bucket.count} ${
+                              bucket.count === 1 ? "message" : "messages"
+                            }`}
+                          >
+                            <div
+                              className={`h-7 rounded-md ${
+                                index === activity.buckets.length - 1
+                                  ? "ring-1 ring-inset ring-white/40"
+                                  : ""
+                              }`}
+                              style={{
+                                backgroundColor: bucketShade(
+                                  bucket.count,
+                                  activity.max,
+                                ),
+                              }}
+                            />
+                            <p
+                              className={`mt-1 text-center text-[9px] font-medium ${
+                                index === activity.buckets.length - 1
+                                  ? "text-zinc-300"
+                                  : "text-zinc-600"
+                              }`}
+                            >
+                              {bucket.initial}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="mt-2.5 grid grid-cols-[repeat(auto-fill,minmax(12px,1fr))] gap-1">
+                          {activity.buckets.map((bucket, index) => (
+                            <div
+                              key={bucket.key}
+                              title={`${bucket.label} · ${bucket.count} ${
+                                bucket.count === 1 ? "message" : "messages"
+                              }`}
+                              className={`h-3 rounded-[3px] ${
+                                index === activity.buckets.length - 1
+                                  ? "ring-1 ring-inset ring-white/40"
+                                  : ""
+                              }`}
+                              style={{
+                                backgroundColor: bucketShade(
+                                  bucket.count,
+                                  activity.max,
+                                ),
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <div className="mt-1 flex items-center justify-between text-[9px] font-medium text-zinc-600">
+                          <span>{activity.rangeStartLabel}</span>
+                          <span>Today</span>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="mt-2.5">
+                      <ActivitySection
+                        label="Messages"
+                        value={activity.messages.toLocaleString()}
+                        open={openActivity.messages === true}
+                        onToggle={() => toggleActivitySection("messages")}
+                      >
+                        {activity.messageRows.length === 0 ? (
+                          <p className="text-[11px] text-zinc-600">
+                            None in this period.
+                          </p>
+                        ) : (
+                          activity.messageRows.map((row) => (
+                            <ActivityCountRow
+                              key={row.label}
+                              label={`From ${row.label.toLocaleLowerCase()}`}
+                              count={row.count}
+                            />
+                          ))
+                        )}
+                      </ActivitySection>
+                      <ActivitySection
+                        label="Moderation"
+                        value={activity.moderationTotal.toLocaleString()}
+                        open={openActivity.moderation === true}
+                        onToggle={() => toggleActivitySection("moderation")}
+                      >
+                        {activity.moderationRows.length === 0 ? (
+                          <p className="text-[11px] text-zinc-600">
+                            None in this period.
+                          </p>
+                        ) : (
+                          activity.moderationRows.map((row) => (
+                            <ActivityCountRow
+                              key={row.label}
+                              label={row.label}
+                              count={row.count}
+                            />
+                          ))
+                        )}
+                      </ActivitySection>
+                      <ActivitySection
+                        label="Participants"
+                        value={activity.talkedTotal.toLocaleString()}
+                        open={openActivity.talked === true}
+                        onToggle={() => toggleActivitySection("talked")}
+                      >
+                        {activity.topPosters.length === 0 ? (
+                          <p className="text-[11px] text-zinc-600">
+                            None in this period.
+                          </p>
+                        ) : (
+                          <>
+                            <p className="text-[11px] text-zinc-600">
+                              {activity.talkedRows
+                                .map(
+                                  (row) =>
+                                    `${row.count} ${row.label.toLocaleLowerCase()}`,
+                                )
+                                .join(" · ")}
+                            </p>
+                            {activity.topPosters.map((poster) => {
+                              const posterActor = actors.get(poster.actorId);
+                              const posterName = actorLabel(
+                                poster.actorId,
+                                actors,
+                              );
+
+                              return (
+                                <div
+                                  key={poster.actorId}
+                                  className="flex items-center gap-2"
+                                >
+                                  <span
+                                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-white/10 text-[8px] font-semibold text-zinc-200"
+                                    style={{
+                                      backgroundColor: shadeFor(poster.actorId),
+                                    }}
+                                  >
+                                    {monogram(posterName)}
+                                  </span>
+                                  <span className="min-w-0 flex-1 truncate text-[11px] text-zinc-300">
+                                    {posterName}
+                                  </span>
+                                  {posterActor !== undefined &&
+                                  posterActor.type !== "human" ? (
+                                    <span className="shrink-0 text-zinc-600">
+                                      {roleBadgeIcon(posterActor.type)}
+                                    </span>
+                                  ) : null}
+                                  <span className="shrink-0 text-[11px] tabular-nums text-zinc-400">
+                                    {poster.count.toLocaleString()}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </>
+                        )}
+                      </ActivitySection>
+                    </div>
+                  </div>
+
+                  {rules.data !== undefined ? (
+                    <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-zinc-600">
+                        Rules
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-zinc-300">
+                        {rules.data.ethos}
+                      </p>
+                      <ol className="mt-2">
+                        {rules.data.rules.map((rule, index) => (
+                          <li key={rule.id}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setOpenRuleId(
+                                  openRuleId === rule.id ? null : rule.id,
+                                )
+                              }
+                              className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left text-sm text-zinc-300 hover:bg-white/[0.04]"
+                            >
+                              <span className="w-4 shrink-0 text-xs tabular-nums text-zinc-600">
+                                {index + 1}
+                              </span>
+                              <span className="flex-1">{rule.title}</span>
+                              <ChevronDown
+                                className={`h-3.5 w-3.5 shrink-0 text-zinc-600 transition-transform ${
+                                  openRuleId === rule.id ? "rotate-180" : ""
+                                }`}
+                              />
+                            </button>
+                            {openRuleId === rule.id ? (
+                              <p className="pb-2 pl-7 pr-1.5 text-xs leading-5 text-zinc-500">
+                                {rule.text}
+                              </p>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  ) : null}
+                </div>
+              </aside>
+            ) : null}
           </>
         )}
       </div>
@@ -3496,11 +3590,7 @@ function App() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center gap-3">
-              <img
-                src={appLogo.src}
-                alt=""
-                className="h-11 w-11 rounded-xl"
-              />
+              <img src={appLogo.src} alt="" className="h-11 w-11 rounded-xl" />
               <div>
                 <p className="text-sm font-semibold text-white">
                   Mod Bots Desktop

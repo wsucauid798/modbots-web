@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { loginCallbackMessage } from "../../../data/oauth";
+import {
+  completeSameTabLogin,
+  loginCallbackMessage,
+  markEnterAfterLogin,
+} from "../../../data/oauth";
+import { saveStoredIdentity } from "../../../data/identity";
+import { setSessionToken } from "../../../data/platform";
 
 // Where the account site returns after sign-in. The desktop app catches this
 // redirect on a loopback listener it owns; here the redirect lands on a real
@@ -22,15 +28,34 @@ const LoginCallback = (): React.ReactElement => {
       return;
     }
 
-    // Opened without an app window behind it, which happens when the person
-    // carried the authorize URL to another browser. Show the code so it can be
-    // pasted into the app's manual path.
-    const params = new URLSearchParams(search);
-    setManualCode(
-      params.get("code") ??
-        params.get("error_description") ??
-        params.get("error") ??
-        "no code was returned",
+    void completeSameTabLogin(search).then(
+      (outcome) => {
+        if (outcome === null) {
+          const params = new URLSearchParams(search);
+          setManualCode(
+            params.get("code") ??
+              params.get("error_description") ??
+              params.get("error") ??
+              "no code was returned",
+          );
+          return;
+        }
+
+        saveStoredIdentity({
+          actorId: outcome.actor.id,
+          token: outcome.session.token,
+        });
+        setSessionToken(outcome.session.token);
+        markEnterAfterLogin();
+        window.location.replace("/");
+      },
+      (error: unknown) => {
+        setManualCode(
+          error instanceof Error
+            ? error.message
+            : "The log-in could not be completed.",
+        );
+      },
     );
   }, []);
 

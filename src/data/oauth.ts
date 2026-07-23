@@ -7,9 +7,11 @@ import { exchangeAccountToken, fetchRequest } from "./platform";
 // and catches the redirect when it lands back on this app's callback route;
 // the manual path exists for when that return cannot come home (the window
 // blocked by the browser, or the account site opened on another machine).
-const accountBaseUrl =
+export const accountBaseUrl =
   process.env.NEXT_PUBLIC_MODBOTS_ACCOUNT_URL ?? "http://localhost:3003";
 const clientId = "modbots-web";
+const sameTabLoginStorageKey = "modbots.web.browser-login";
+const enterAfterLoginStorageKey = "modbots.web.enter-after-login";
 
 // The account service registers this app's redirect as WEB_REDIRECT_URI,
 // defaulting to http://localhost:3000/login/callback. Derived from the live
@@ -59,7 +61,58 @@ export interface BrowserLoginSession {
   completeWithCode: (code: string) => Promise<BrowserLoginOutcome>;
 }
 
+export type BrowserLoginScreen = "login" | "register";
+
 const recoveryCodePrefix = "MBR-";
+
+interface LoginRequestState {
+  verifier: string;
+  state: string;
+}
+
+const saveSameTabLoginRequest = (request: LoginRequestState): void => {
+  try {
+    window.sessionStorage.setItem(
+      sameTabLoginStorageKey,
+      JSON.stringify(request),
+    );
+  } catch {
+    // The popup/manual path still works if sessionStorage is unavailable.
+  }
+};
+
+const loadSameTabLoginRequest = (): LoginRequestState | null => {
+  try {
+    const raw = window.sessionStorage.getItem(sameTabLoginStorageKey);
+
+    if (raw === null) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as { verifier?: unknown; state?: unknown };
+
+    if (
+      typeof parsed.verifier !== "string" ||
+      parsed.verifier.length === 0 ||
+      typeof parsed.state !== "string" ||
+      parsed.state.length === 0
+    ) {
+      return null;
+    }
+
+    return { verifier: parsed.verifier, state: parsed.state };
+  } catch {
+    return null;
+  }
+};
+
+const clearSameTabLoginRequest = (): void => {
+  try {
+    window.sessionStorage.removeItem(sameTabLoginStorageKey);
+  } catch {
+    // Nothing to clear.
+  }
+};
 
 const exchangeCode = async (
   code: string,
@@ -118,10 +171,9 @@ const exchangeRecoveryCode = async (
   return exchangeAccountToken(payload.accessToken);
 };
 
-// Prepares the login: builds the authorization URL and arms the loopback
-// listener immediately, so the URL works whether the person clicks
-// Continue in browser or copies it into any browser themselves.
-const prepareBrowserLogin = async (): Promise<BrowserLoginSession> => {
+const buildAuthorizeUrl = async (
+  screen: BrowserLoginScreen,
+): Promise<LoginRequestState & { authorizeUrl: string }> => {
   const verifier = randomValue();
   const state = randomValue();
   const challenge = await challengeFor(verifier);
@@ -134,7 +186,22 @@ const prepareBrowserLogin = async (): Promise<BrowserLoginSession> => {
   authorize.searchParams.set("code_challenge", challenge);
   authorize.searchParams.set("code_challenge_method", "S256");
   authorize.searchParams.set("state", state);
-  const authorizeUrl = authorize.toString();
+
+  if (screen === "register") {
+    authorize.searchParams.set("screen", screen);
+  }
+
+  return { authorizeUrl: authorize.toString(), verifier, state };
+};
+
+// Prepares the login: builds the authorization URL and arms the loopback
+// listener immediately, so the URL works whether the person clicks
+// Continue in browser or copies it into any browser themselves.
+const prepareBrowserLogin = async (
+  screen: BrowserLoginScreen,
+): Promise<BrowserLoginSession> => {
+  const { authorizeUrl, verifier, state } = await buildAuthorizeUrl(screen);
+  saveSameTabLoginRequest({ verifier, state });
 
   const automatic = (async (): Promise<BrowserLoginOutcome> => {
     const params = await awaitCallbackParams();
@@ -167,6 +234,61 @@ const prepareBrowserLogin = async (): Promise<BrowserLoginSession> => {
         : exchangeCode(normalized, verifier);
     },
   };
+};
+
+export const completeSameTabLogin = async (
+  search: string,
+): Promise<BrowserLoginOutcome | null> => {
+  const request = loadSameTabLoginRequest();
+
+  if (request === null) {
+    return null;
+  }
+
+  const params = new URLSearchParams(search);
+
+  if (params.get("state") !== request.state) {
+    clearSameTabLoginRequest();
+    throw new Error("The log-in response did not match this app's request.");
+  }
+
+  const code = params.get("code");
+
+  if (code === null) {
+    clearSameTabLoginRequest();
+    throw new Error(
+      params.get("error_description") ??
+        params.get("error") ??
+        "The log-in did not complete.",
+    );
+  }
+
+  const outcome = await exchangeCode(code, request.verifier);
+  clearSameTabLoginRequest();
+  return outcome;
+};
+
+export const markEnterAfterLogin = (): void => {
+  try {
+    window.sessionStorage.setItem(enterAfterLoginStorageKey, "1");
+  } catch {
+    // Entering is still available from the start screen.
+  }
+};
+
+export const consumeEnterAfterLogin = (): boolean => {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    const shouldEnter =
+      window.sessionStorage.getItem(enterAfterLoginStorageKey) === "1";
+    window.sessionStorage.removeItem(enterAfterLoginStorageKey);
+    return shouldEnter;
+  } catch {
+    return false;
+  }
 };
 
 // The desktop app hands off to the system browser and waits on a loopback
@@ -237,9 +359,11 @@ export const resetBrowserLoginSession = async (): Promise<void> => {
 // request starts fresh.
 let liveSession: Promise<BrowserLoginSession> | null = null;
 
-export const getBrowserLoginSession = (): Promise<BrowserLoginSession> => {
+export const getBrowserLoginSession = (
+  screen: BrowserLoginScreen = "login",
+): Promise<BrowserLoginSession> => {
   if (liveSession === null) {
-    liveSession = prepareBrowserLogin().then((session) => {
+    liveSession = prepareBrowserLogin(screen).then((session) => {
       void session.automatic.finally(() => {
         liveSession = null;
       });

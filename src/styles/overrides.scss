@@ -1,3 +1,15 @@
+// Fits the interface onto whatever screen it is on. The layout keeps its own
+// proportions and nothing inside it moves or reflows; the whole thing is
+// scaled as one piece until it fits the viewport. Above the layout's natural
+// width it sits at 1:1, where the conversation column already takes up the
+// remaining space on its own.
+.modbots-fit {
+  --modbots-fit-scale: min(1, calc(100vw / 880px));
+
+  zoom: var(--modbots-fit-scale);
+  height: calc(100dvh / var(--modbots-fit-scale));
+}
+
 .modbots-scroll {
   scrollbar-width: thin;
   scrollbar-color: #3f3f46 transparent;

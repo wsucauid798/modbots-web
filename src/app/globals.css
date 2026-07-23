@@ -1,8 +1,43 @@
-@import "tailwindcss";
+@import "tailwindcss/index.css";
+.modbots-fit {
+  --modbots-fit-scale: min(1, calc(100vw / 880px));
+  zoom: var(--modbots-fit-scale);
+  height: calc(100dvh / var(--modbots-fit-scale));
+}
+
+.modbots-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 transparent;
+}
+.modbots-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+.modbots-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.modbots-scroll::-webkit-scrollbar-thumb {
+  background: #2f2f35;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+.modbots-scroll::-webkit-scrollbar-thumb:hover {
+  background: #44444d;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
 
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  color-scheme: dark;
+  font-family: var(--modbots-ui-font, "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", Aptos, "Helvetica Neue", Helvetica, Arial, sans-serif);
+  font-synthesis: none;
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
 }
 
 @theme inline {
@@ -11,16 +46,30 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
-
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
   }
 }
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
 
 body {
-  background: var(--background);
+  margin: 0;
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: radial-gradient(circle at top, rgba(248, 250, 252, 0.08), transparent 26%), linear-gradient(180deg, #09090b 0%, #111114 44%, #0a0a0c 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
 }
