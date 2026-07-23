@@ -36,6 +36,7 @@ import {
   Reply,
   Search,
   Send,
+  Settings as SettingsIcon,
   Shield,
   SmilePlus,
   Users,
@@ -611,7 +612,7 @@ const buildTimeline = (events: RoomEvent[]): TimelineItem[] => {
   return items;
 };
 
-type MenuId = "file" | "edit" | "view" | "account" | "help";
+type MenuId = "file" | "edit" | "view" | "help";
 
 // Panel widths survive restarts the way the window's own frame does:
 // window-state remembers the frame, this remembers the panels.
@@ -2591,34 +2592,6 @@ function App() {
       ],
     },
     {
-      id: "account",
-      label: "Account",
-      items: [
-        {
-          label: "Profile",
-          disabled: localActor === undefined,
-          onSelect: () => {
-            setMembersOpen(true);
-            setUserMenuOpen(true);
-          },
-        },
-        {
-          label: "Settings...",
-          shortcut: "Ctrl+,",
-          onSelect: () => setSettingsOpen(true),
-        },
-        {
-          kind: "separator",
-          id: "account-session",
-        },
-        {
-          label: "Log out",
-          disabled: !hasIdentity,
-          onSelect: logOut,
-        },
-      ],
-    },
-    {
       id: "help",
       label: "Help",
       items: [
@@ -2980,7 +2953,28 @@ function App() {
                         />
                       </div>
 
-                      <div className="border-t border-white/[0.08] px-3 py-3">
+                      <div className="space-y-2 border-t border-white/[0.08] px-3 py-3">
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setUserMenuOpen(false);
+                            setSettingsOpen(true);
+                          }}
+                          className="flex w-full items-center gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-3 text-left text-[12px] text-zinc-300 transition-colors hover:border-white/12 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                        >
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-black/20 text-zinc-400">
+                            <SettingsIcon className="h-4 w-4" />
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block font-semibold text-zinc-100">
+                              Settings
+                            </span>
+                            <span className="block text-[11px] text-zinc-500">
+                              Configure how the room behaves for you
+                            </span>
+                          </span>
+                        </button>
                         <button
                           type="button"
                           role="menuitem"
