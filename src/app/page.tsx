@@ -59,7 +59,6 @@ import { isMutedError, mediaAssetDataUrl } from "../data/platform";
 import { actorLabel, actorRole } from "../data/room-state";
 import { useRoomActivity } from "../hooks/useRoomActivity";
 import { AppSettingsDialog } from "../components/AppSettingsDialog";
-import { HelpTutorialDialog } from "../components/HelpTutorialDialog";
 import { MenuBar } from "../components/MenuBar";
 import type { MenuSpec } from "../components/MenuBar";
 
@@ -1752,7 +1751,6 @@ function App() {
   } | null>(null);
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [tutorialOpen, setTutorialOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sendWithEnter, setSendWithEnter] = useState(true);
   const [showStatusBar, setShowStatusBar] = useState(true);
@@ -2726,10 +2724,6 @@ function App() {
       label: "Help",
       items: [
         {
-          label: "Tutorial",
-          onSelect: () => setTutorialOpen(true),
-        },
-        {
           label: "About Mod Bots",
           onSelect: () => setAboutOpen(true),
         },
@@ -2814,7 +2808,6 @@ function App() {
       if (event.key === "Escape") {
         setOpenMenu(null);
         setAboutOpen(false);
-        setTutorialOpen(false);
         setSettingsOpen(false);
         setReplyTarget(null);
         setUserMenuOpen(false);
@@ -3878,10 +3871,6 @@ function App() {
           onOpenRoomInfoOnStartChange={setOpenRoomInfoOnStart}
           onClose={() => setSettingsOpen(false)}
         />
-      ) : null}
-
-      {tutorialOpen ? (
-        <HelpTutorialDialog onClose={() => setTutorialOpen(false)} />
       ) : null}
 
       {aboutOpen ? (
