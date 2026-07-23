@@ -2925,13 +2925,7 @@ function App() {
                       </div>
                     </div>
                   ) : null}
-                  <div
-                    className={`flex items-center rounded-[20px] border shadow-[0_12px_36px_rgba(0,0,0,0.22)] transition-colors ${
-                      userMenuOpen
-                        ? "border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.04))]"
-                        : "border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] hover:border-white/10 hover:bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03))]"
-                    }`}
-                  >
+                  <div className="flex items-center gap-1 rounded-[20px] border border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] p-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.22)]">
                     <button
                       type="button"
                       onClick={() =>
@@ -2942,9 +2936,14 @@ function App() {
                       disabled={localActor === undefined}
                       aria-haspopup="dialog"
                       aria-expanded={userMenuOpen}
-                      className="flex min-w-0 flex-1 items-center gap-3 rounded-[20px] px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-default"
+                      title="Your profile"
+                      className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-[14px] px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-default ${
+                        userMenuOpen
+                          ? "bg-white/[0.08]"
+                          : "hover:bg-white/[0.06]"
+                      }`}
                     >
-                      <div className="relative">
+                      <div className="relative shrink-0">
                         <ActorProfilePicture
                           actor={localActor}
                           actorId={localActor?.id ?? null}
@@ -2955,10 +2954,17 @@ function App() {
                           <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0d0d0d] bg-zinc-200" />
                         ) : null}
                       </div>
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 text-zinc-100">
+                      <span className="min-w-0 truncate text-[13px] font-semibold leading-5 text-zinc-100">
                         {localActor?.display ??
                           (hasIdentity ? "Preparing session..." : "Not joined")}
                       </span>
+                      {localActor !== undefined ? (
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 shrink-0 text-zinc-500 transition-transform duration-200 ${
+                            userMenuOpen ? "rotate-180" : ""
+                          }`}
+                        />
+                      ) : null}
                     </button>
                     {localActor !== undefined ? (
                       <button
@@ -2969,7 +2975,7 @@ function App() {
                         }}
                         aria-label="Log out"
                         title="Log out"
-                        className="mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-zinc-500 transition-colors hover:bg-white/[0.08] hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
                       >
                         <LogOut className="h-4 w-4" />
                       </button>
