@@ -21,7 +21,6 @@ import {
   ArrowRight,
   Bot,
   CalendarDays,
-  Check,
   ChevronDown,
   CircleAlert,
   Copy,
@@ -59,6 +58,9 @@ import type { BrowserLoginOutcome, BrowserLoginSession } from "../data/oauth";
 import { isMutedError, mediaAssetDataUrl } from "../data/platform";
 import { actorLabel, actorRole } from "../data/room-state";
 import { useRoomActivity } from "../hooks/useRoomActivity";
+import { AppSettingsDialog } from "../components/AppSettingsDialog";
+import { MenuBar } from "../components/MenuBar";
+import type { MenuSpec } from "../components/MenuBar";
 
 const roomId = "global-lobby";
 const roomName = "Room";
@@ -455,6 +457,31 @@ const activityScopes: Array<{ id: ActivityScope; label: string }> = [
   { id: "all", label: "All" },
 ];
 
+const settingsStorageKeys = {
+  sendWithEnter: "modbots.web.send-with-enter",
+  showStatusBar: "modbots.web.show-status-bar",
+  openParticipantsOnStart: "modbots.web.open-participants-on-start",
+  openRoomInfoOnStart: "modbots.web.open-room-info-on-start",
+};
+
+const readStoredBoolean = (key: string, fallback: boolean): boolean => {
+  const stored = window.localStorage.getItem(key);
+
+  if (stored === "true") {
+    return true;
+  }
+
+  if (stored === "false") {
+    return false;
+  }
+
+  return fallback;
+};
+
+const writeStoredBoolean = (key: string, value: boolean): void => {
+  window.localStorage.setItem(key, String(value));
+};
+
 const moderationActionLabels: Record<string, string> = {
   delete_message: "Messages deleted",
   mute_actor: "Participants muted",
@@ -587,22 +614,7 @@ const buildTimeline = (events: RoomEvent[]): TimelineItem[] => {
   return items;
 };
 
-type MenuId = "file" | "edit" | "view" | "room" | "help";
-
-interface MenuItemSpec {
-  label: string;
-  shortcut?: string;
-  onSelect?: () => void;
-  disabled?: boolean;
-  checked?: boolean;
-  title?: string;
-}
-
-interface MenuSpec {
-  id: MenuId;
-  label: string;
-  items: MenuItemSpec[];
-}
+type MenuId = "file" | "edit" | "view" | "help";
 
 // Panel widths survive restarts the way the window's own frame does:
 // window-state remembers the frame, this remembers the panels.
@@ -764,68 +776,6 @@ function ActorProfilePicture({
           {roleBadgeIcon(actor.type)}
         </span>
       ) : null}
-    </div>
-  );
-}
-
-function MenuBar({
-  menus,
-  openMenu,
-  onOpenMenu,
-}: {
-  menus: MenuSpec[];
-  openMenu: MenuId | null;
-  onOpenMenu: (menu: MenuId | null) => void;
-}) {
-  return (
-    <div className="relative z-30 flex h-8 shrink-0 items-center gap-0.5 border-b border-white/[0.08] bg-[#0a0a0a] px-2.5">
-      {menus.map((menu) => (
-        <div key={menu.id} className="relative">
-          <button
-            type="button"
-            onClick={() => onOpenMenu(openMenu === menu.id ? null : menu.id)}
-            onMouseEnter={() => {
-              if (openMenu !== null) {
-                onOpenMenu(menu.id);
-              }
-            }}
-            className={`rounded-md px-2.5 py-1 text-[12px] transition ${
-              openMenu === menu.id
-                ? "bg-white/[0.1] text-white"
-                : "text-zinc-400 hover:bg-white/[0.06] hover:text-zinc-100"
-            }`}
-          >
-            {menu.label}
-          </button>
-          {openMenu === menu.id ? (
-            <div className="absolute left-0 top-full z-40 mt-0.5 min-w-[224px] rounded-lg border border-white/10 bg-[#151515] p-1 shadow-[0_16px_50px_rgba(0,0,0,0.5)]">
-              {menu.items.map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  disabled={item.disabled}
-                  title={item.title}
-                  onClick={() => {
-                    onOpenMenu(null);
-                    item.onSelect?.();
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] text-zinc-300 hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:text-zinc-600 disabled:hover:bg-transparent"
-                >
-                  <span className="flex w-4 shrink-0 justify-center text-zinc-400">
-                    {item.checked ? <Check className="h-3.5 w-3.5" /> : null}
-                  </span>
-                  <span className="flex-1 truncate">{item.label}</span>
-                  {item.shortcut ? (
-                    <span className="text-[11px] tabular-nums text-zinc-600">
-                      {item.shortcut}
-                    </span>
-                  ) : null}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ))}
     </div>
   );
 }
@@ -1778,6 +1728,12 @@ function App() {
   } | null>(null);
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sendWithEnter, setSendWithEnter] = useState(true);
+  const [showStatusBar, setShowStatusBar] = useState(true);
+  const [openParticipantsOnStart, setOpenParticipantsOnStart] = useState(true);
+  const [openRoomInfoOnStart, setOpenRoomInfoOnStart] = useState(true);
+  const [settingsReady, setSettingsReady] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   // Entering the room is an explicit act every launch: nothing inside the
   // room renders until the person finishes the browser-side sign-in flow.
@@ -1787,6 +1743,7 @@ function App() {
   const previousConversationHeight = useRef<number | null>(null);
   const conversationPositioned = useRef(false);
   const followLatestMessage = useRef(true);
+  const wasEntered = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const attachmentInput = useRef<HTMLInputElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -1797,6 +1754,70 @@ function App() {
   const modBotCount = onlineActorIds.filter(
     (actorId) => actors.get(actorId)?.type === "mod_bot",
   ).length;
+
+  useEffect(() => {
+    setSendWithEnter(
+      readStoredBoolean(settingsStorageKeys.sendWithEnter, true),
+    );
+    setShowStatusBar(
+      readStoredBoolean(settingsStorageKeys.showStatusBar, true),
+    );
+    setOpenParticipantsOnStart(
+      readStoredBoolean(settingsStorageKeys.openParticipantsOnStart, true),
+    );
+    setOpenRoomInfoOnStart(
+      readStoredBoolean(settingsStorageKeys.openRoomInfoOnStart, true),
+    );
+    setSettingsReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!settingsReady) {
+      return;
+    }
+
+    writeStoredBoolean(settingsStorageKeys.sendWithEnter, sendWithEnter);
+  }, [sendWithEnter, settingsReady]);
+
+  useEffect(() => {
+    if (!settingsReady) {
+      return;
+    }
+
+    writeStoredBoolean(settingsStorageKeys.showStatusBar, showStatusBar);
+  }, [showStatusBar, settingsReady]);
+
+  useEffect(() => {
+    if (!settingsReady) {
+      return;
+    }
+
+    writeStoredBoolean(
+      settingsStorageKeys.openParticipantsOnStart,
+      openParticipantsOnStart,
+    );
+  }, [openParticipantsOnStart, settingsReady]);
+
+  useEffect(() => {
+    if (!settingsReady) {
+      return;
+    }
+
+    writeStoredBoolean(
+      settingsStorageKeys.openRoomInfoOnStart,
+      openRoomInfoOnStart,
+    );
+  }, [openRoomInfoOnStart, settingsReady]);
+
+  useEffect(() => {
+    if (entered && !wasEntered.current) {
+      setMembersOpen(openParticipantsOnStart);
+      setAboutPanelOpen(openRoomInfoOnStart);
+    }
+
+    wasEntered.current = entered;
+  }, [entered, openParticipantsOnStart, openRoomInfoOnStart]);
+
   const participantStatuses = useMemo(() => {
     const statuses = new Map<
       string,
@@ -2307,14 +2328,101 @@ function App() {
       }
     }
 
-    if (
-      event.key === "Enter" &&
-      !event.shiftKey &&
-      !event.nativeEvent.isComposing
-    ) {
+    const shouldSubmit = sendWithEnter
+      ? event.key === "Enter" && !event.shiftKey
+      : event.key === "Enter" && (event.ctrlKey || event.metaKey);
+
+    if (shouldSubmit && !event.nativeEvent.isComposing) {
       event.preventDefault();
       event.currentTarget.form?.requestSubmit();
     }
+  };
+  const activeTextInput = (): HTMLInputElement | HTMLTextAreaElement | null => {
+    const element = document.activeElement;
+
+    if (
+      element instanceof HTMLInputElement ||
+      element instanceof HTMLTextAreaElement
+    ) {
+      return element;
+    }
+
+    return null;
+  };
+  const runEditCommand = (command: string) => {
+    const element = activeTextInput();
+    element?.focus();
+    document.execCommand(command);
+  };
+  const selectActiveText = () => {
+    const element = activeTextInput();
+
+    if (element !== null) {
+      element.select();
+      return;
+    }
+
+    document.execCommand("selectAll");
+  };
+  const focusComposer = () => {
+    composerRef.current?.focus();
+  };
+  const selectDraft = () => {
+    const element = composerRef.current;
+
+    if (element !== null) {
+      element.focus();
+      element.select();
+    }
+  };
+  const insertIntoDraft = (text: string) => {
+    const element = composerRef.current;
+
+    if (element === null) {
+      return;
+    }
+
+    const start = element.selectionStart;
+    const end = element.selectionEnd;
+    const next = `${draft.slice(0, start)}${text}${draft.slice(end)}`;
+    const caret = start + text.length;
+
+    setDraft(next);
+
+    requestAnimationFrame(() => {
+      element.focus();
+      element.setSelectionRange(caret, caret);
+    });
+  };
+  const pasteIntoDraft = async () => {
+    const text = await navigator.clipboard.readText();
+
+    if (text.length > 0) {
+      insertIntoDraft(text);
+    }
+  };
+  const exitSession = () => {
+    setUserMenuOpen(false);
+    setOpenMenu(null);
+    void signOut();
+    setEntered(false);
+  };
+  const logOut = () => {
+    setUserMenuOpen(false);
+    setOpenMenu(null);
+    void signOut();
+    setEntered(false);
+  };
+  const openExternal = (url: string) => {
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement === null) {
+      void document.documentElement.requestFullscreen();
+      return;
+    }
+
+    void document.exitFullscreen();
   };
   const canSend =
     localActor !== undefined &&
@@ -2381,25 +2489,36 @@ function App() {
     }
   };
 
-  const menus: MenuSpec[] = [
+  const menus: Array<MenuSpec<MenuId>> = [
     {
       id: "file",
       label: "File",
       items: [
         {
-          label: "Search conversation",
-          shortcut: "Ctrl+F",
-          onSelect: () => searchInput.current?.focus(),
+          label: "Settings...",
+          shortcut: "Ctrl+,",
+          onSelect: () => setSettingsOpen(true),
         },
         {
-          label: "Export transcript",
-          disabled: true,
-          title: "Transcript export is not connected yet",
+          kind: "separator",
+          id: "file-session",
         },
         {
-          label: "Quit",
-          disabled: true,
-          title: "Use the window controls to close the app",
+          label: "Account",
+          disabled: localActor === undefined,
+          onSelect: () => {
+            setMembersOpen(true);
+            setUserMenuOpen(true);
+          },
+        },
+        {
+          label: "Log out",
+          disabled: !hasIdentity,
+          onSelect: logOut,
+        },
+        {
+          label: "Exit",
+          onSelect: exitSession,
         },
       ],
     },
@@ -2408,7 +2527,79 @@ function App() {
       label: "Edit",
       items: [
         {
-          label: "Find in conversation",
+          label: "Undo",
+          shortcut: "Ctrl+Z",
+          onSelect: () => runEditCommand("undo"),
+        },
+        {
+          label: "Redo",
+          shortcut: "Ctrl+Y",
+          onSelect: () => runEditCommand("redo"),
+        },
+        {
+          kind: "separator",
+          id: "edit-clipboard",
+        },
+        {
+          label: "Cut",
+          shortcut: "Ctrl+X",
+          onSelect: () => runEditCommand("cut"),
+        },
+        {
+          label: "Copy",
+          shortcut: "Ctrl+C",
+          onSelect: () => runEditCommand("copy"),
+        },
+        {
+          label: "Paste into draft",
+          shortcut: "Ctrl+V",
+          disabled: localActor === undefined || !apiConnected,
+          onSelect: () => void pasteIntoDraft().catch(() => undefined),
+        },
+        {
+          label: "Delete",
+          onSelect: () => runEditCommand("delete"),
+        },
+        {
+          label: "Select all",
+          shortcut: "Ctrl+A",
+          onSelect: selectActiveText,
+        },
+        {
+          kind: "separator",
+          id: "edit-message",
+        },
+        {
+          label: "Message draft",
+          disabled: localActor === undefined || !apiConnected,
+          onSelect: focusComposer,
+        },
+        {
+          label: "Select draft",
+          disabled: draft.length === 0,
+          onSelect: selectDraft,
+        },
+        {
+          label: "Clear draft",
+          disabled: draft.length === 0,
+          onSelect: () => setDraft(""),
+        },
+        {
+          label: "Cancel reply",
+          disabled: replyTarget === null,
+          onSelect: () => setReplyTarget(null),
+        },
+        {
+          label: "Remove attachment",
+          disabled: attachment === null,
+          onSelect: () => setAttachment(null),
+        },
+        {
+          kind: "separator",
+          id: "edit-find",
+        },
+        {
+          label: "Find in chat",
           shortcut: "Ctrl+F",
           onSelect: () => searchInput.current?.focus(),
         },
@@ -2429,35 +2620,88 @@ function App() {
           onSelect: () => setMembersOpen((open) => !open),
         },
         {
-          label: "About panel",
+          label: "Room information",
           checked: aboutPanelOpen,
           onSelect: () => setAboutPanelOpen((open) => !open),
         },
         {
-          label: "Scroll to latest",
-          onSelect: scrollToLatest,
-        },
-      ],
-    },
-    {
-      id: "room",
-      label: "Room",
-      items: [
-        {
-          label: "Room details",
-          disabled: true,
-          title: "Room management is not connected yet",
+          label: "Status bar",
+          checked: showStatusBar,
+          onSelect: () => setShowStatusBar((shown) => !shown),
         },
         {
-          label: "Invite people",
-          disabled: true,
-          title: "Invites are not connected yet",
+          kind: "separator",
+          id: "view-activity",
         },
         {
-          label: "Log out",
-          disabled: !hasIdentity,
-          title: hasIdentity ? undefined : "You are not logged in yet",
-          onSelect: () => void signOut(),
+          label: "Activity: 7d",
+          checked: activityScope === "7d",
+          onSelect: () => {
+            setAboutPanelOpen(true);
+            setActivityScope("7d");
+          },
+        },
+        {
+          label: "Activity: 30d",
+          checked: activityScope === "30d",
+          onSelect: () => {
+            setAboutPanelOpen(true);
+            setActivityScope("30d");
+          },
+        },
+        {
+          label: "Activity: All",
+          checked: activityScope === "all",
+          onSelect: () => {
+            setAboutPanelOpen(true);
+            setActivityScope("all");
+          },
+        },
+        {
+          kind: "separator",
+          id: "view-room-surfaces",
+        },
+        {
+          label: "Moderation activity",
+          checked: openActivity.moderation === true,
+          onSelect: () => {
+            setAboutPanelOpen(true);
+            setOpenActivity((previous) => ({
+              ...previous,
+              moderation: !(previous.moderation ?? false),
+            }));
+          },
+        },
+        {
+          label: "Rules",
+          disabled: rules.data === undefined,
+          checked: openRuleId !== null,
+          onSelect: () => {
+            setAboutPanelOpen(true);
+            setOpenRuleId((current) =>
+              current === null ? (rules.data?.rules[0]?.id ?? null) : null,
+            );
+          },
+        },
+        {
+          label: "Bot residents",
+          onSelect: () => {
+            setMembersOpen(true);
+            setAboutPanelOpen(true);
+          },
+        },
+        {
+          kind: "separator",
+          id: "view-window",
+        },
+        {
+          label: "Toggle full screen",
+          shortcut: "F11",
+          onSelect: toggleFullscreen,
+        },
+        {
+          label: "Refresh room",
+          onSelect: () => void refresh(),
         },
       ],
     },
@@ -2470,9 +2714,22 @@ function App() {
           onSelect: () => setAboutOpen(true),
         },
         {
-          label: "Keyboard shortcuts",
-          disabled: true,
-          title: "Shortcut reference is not connected yet",
+          label: "Participation Policy",
+          onSelect: () => openExternal(`${accountBaseUrl}/policy`),
+        },
+        {
+          label: "Report a bug",
+          onSelect: () =>
+            openExternal(
+              "https://github.com/wsucauid798/modbots-web/issues/new?labels=bug",
+            ),
+        },
+        {
+          label: "Request a feature",
+          onSelect: () =>
+            openExternal(
+              "https://github.com/wsucauid798/modbots-web/issues/new?labels=enhancement",
+            ),
         },
       ],
     },
@@ -2524,9 +2781,20 @@ function App() {
         return;
       }
 
+      if (
+        (event.ctrlKey || event.metaKey) &&
+        event.key === "," &&
+        entered
+      ) {
+        event.preventDefault();
+        setSettingsOpen(true);
+        return;
+      }
+
       if (event.key === "Escape") {
         setOpenMenu(null);
         setAboutOpen(false);
+        setSettingsOpen(false);
         setReplyTarget(null);
         setUserMenuOpen(false);
       }
@@ -2534,7 +2802,7 @@ function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [entered]);
 
   // Signing out (or a stale identity being dropped) closes the door again.
   useEffect(() => {
@@ -3569,7 +3837,7 @@ function App() {
         )}
       </div>
 
-      {entered ? (
+      {entered && showStatusBar ? (
         <StatusBar
           connectionLabel={connectionLabel}
           sending={sendMessage.isPending || sendContent.isPending}
@@ -3577,6 +3845,20 @@ function App() {
           searchMatches={
             searchQuery.trim().length > 0 ? roomEvents.length : null
           }
+        />
+      ) : null}
+
+      {settingsOpen ? (
+        <AppSettingsDialog
+          sendWithEnter={sendWithEnter}
+          showStatusBar={showStatusBar}
+          openParticipantsOnStart={openParticipantsOnStart}
+          openRoomInfoOnStart={openRoomInfoOnStart}
+          onSendWithEnterChange={setSendWithEnter}
+          onShowStatusBarChange={setShowStatusBar}
+          onOpenParticipantsOnStartChange={setOpenParticipantsOnStart}
+          onOpenRoomInfoOnStartChange={setOpenRoomInfoOnStart}
+          onClose={() => setSettingsOpen(false)}
         />
       ) : null}
 
@@ -3593,7 +3875,7 @@ function App() {
               <img src={appLogo.src} alt="" className="h-11 w-11 rounded-xl" />
               <div>
                 <p className="text-sm font-semibold text-white">
-                  Mod Bots Desktop
+                  Mod Bots Web
                 </p>
                 <p className="text-xs text-zinc-500">Version {appVersion}</p>
               </div>
