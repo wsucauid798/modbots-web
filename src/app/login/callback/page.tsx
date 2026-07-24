@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { saveStoredIdentity } from "../../../data/identity";
 import {
   completeSameTabLogin,
   loginCallbackMessage,
   markEnterAfterLogin,
 } from "../../../data/oauth";
-import { saveStoredIdentity } from "../../../data/identity";
 import { setSessionToken } from "../../../data/platform";
 
 // Where the account site returns after sign-in. The desktop app catches this
@@ -47,7 +47,7 @@ const LoginCallback = (): React.ReactElement => {
         });
         setSessionToken(outcome.session.token);
         markEnterAfterLogin();
-        window.location.replace("/");
+        window.location.replace("/chatroom");
       },
       (error: unknown) => {
         setManualCode(
