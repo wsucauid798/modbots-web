@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import appLogo from "../../assets/logo.svg";
 import startScreenBg from "../../assets/start-screen-bg.png";
@@ -66,7 +67,7 @@ const LoginPage = (): React.ReactElement => {
   }, [uid]);
 
   return (
-    <main className="flex min-h-screen min-h-dvh flex-col bg-[#0b0b0b] text-zinc-100">
+    <main className="flex h-screen h-dvh flex-col overflow-y-auto bg-[#0b0b0b] text-zinc-100">
       <section className="relative flex flex-1 flex-col">
         <div
           className="pointer-events-none absolute inset-0 bg-cover bg-center"
@@ -87,9 +88,12 @@ const LoginPage = (): React.ReactElement => {
         />
         <div className="relative mx-auto flex w-full max-w-[420px] flex-1 flex-col justify-center px-6 py-8 sm:py-12">
           <div className="text-center">
-            <img
-              src={appLogo.src}
+            <Image
+              src={appLogo}
               alt=""
+              width={48}
+              height={48}
+              priority
               className="mx-auto h-12 w-12 rounded-lg shadow-[0_8px_24px_rgba(0,143,255,0.2)]"
             />
             <h1 className="mt-5 text-[26px] font-semibold tracking-tight text-white">
