@@ -1676,7 +1676,7 @@ function StartScreen({
   );
 }
 
-function SessionRestoreScreen() {
+function SessionRestoreScreen({ restoring }: { restoring: boolean }) {
   return (
     <section className="relative flex min-h-full flex-1 items-center justify-center overflow-hidden bg-[#0b0b0b] px-6 py-12 text-zinc-100">
       <img
@@ -1692,7 +1692,7 @@ function SessionRestoreScreen() {
         />
         <h1 className="mt-7 text-4xl font-bold text-white">Mod Bots</h1>
         <p className="mt-4 max-w-md text-lg leading-8 text-zinc-400">
-          Restoring your session...
+          {restoring ? "Restoring your session..." : "Starting Mod Bots..."}
         </p>
       </div>
     </section>
@@ -2855,8 +2855,10 @@ function App() {
         ) : null}
         <div className="flex min-h-0 flex-1">
         {!entered ? (
-          !identityRestored || hasIdentity ? (
-            <SessionRestoreScreen />
+          !identityRestored ? (
+            <SessionRestoreScreen restoring={false} />
+          ) : hasIdentity ? (
+            <SessionRestoreScreen restoring />
           ) : (
             <StartScreen
               onSignedIn={(outcome) => {
