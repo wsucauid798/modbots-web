@@ -200,11 +200,11 @@ export function SettingsDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+      className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/60 sm:items-center sm:p-6"
       onClick={onClose}
     >
       <div
-        className="w-[min(780px,100%)] rounded-[28px] border border-white/10 bg-[#111111] shadow-[0_24px_70px_rgba(0,0,0,0.6)]"
+        className="flex h-dvh w-full flex-col border border-white/10 bg-[#111111] shadow-[0_24px_70px_rgba(0,0,0,0.6)] sm:h-auto sm:max-h-[calc(100dvh-3rem)] sm:w-[min(780px,100%)] sm:rounded-[28px]"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -232,9 +232,9 @@ export function SettingsDialog({
           </button>
         </div>
 
-        <div className="grid gap-0 md:grid-cols-[220px_minmax(0,1fr)]">
+        <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-0 md:grid-cols-[220px_minmax(0,1fr)] md:grid-rows-1">
           <aside className="border-b border-white/[0.08] p-4 md:border-b-0 md:border-r">
-            <nav className="space-y-2">
+            <nav className="grid grid-cols-2 gap-2 md:block md:space-y-2">
               <SectionButton
                 label="Account"
                 icon={<UserRound className="h-4 w-4" />}
@@ -250,7 +250,7 @@ export function SettingsDialog({
             </nav>
           </aside>
 
-          <div className="max-h-[min(78vh,760px)] overflow-y-auto p-5">
+          <div className="min-h-0 overflow-y-auto p-4 sm:p-5 md:max-h-[min(78vh,760px)]">
             {section === "account" ? (
               account === null ? null : (
                 <div>

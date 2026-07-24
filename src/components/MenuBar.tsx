@@ -662,7 +662,7 @@ export function MenuBar({
 
       <div
         ref={menuBarRef}
-        className="relative z-30 flex h-11 shrink-0 items-center border-b border-white/[0.08] bg-[#101010] px-2 shadow-[0_1px_0_rgba(0,0,0,0.45)] sm:h-8 sm:bg-[#0a0a0a] sm:px-2.5 sm:shadow-none"
+        className="relative z-30 flex h-11 shrink-0 items-center border-b border-white/[0.08] bg-[#101010] px-2 shadow-[0_1px_0_rgba(0,0,0,0.45)] lg:h-8 lg:bg-[#0a0a0a] lg:px-2.5 lg:shadow-none"
       >
         <button
           type="button"
@@ -676,16 +676,16 @@ export function MenuBar({
             setOpenMenu(null);
             setMobileOpen((open) => !open);
           }}
-          className="flex h-9 w-9 items-center justify-center rounded text-zinc-400 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40 sm:hidden"
+          className="flex h-9 w-9 items-center justify-center rounded text-zinc-400 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/40 lg:hidden"
         >
           <MenuIcon className="h-[18px] w-[18px]" />
         </button>
-        <span className="ml-1 text-[12px] font-semibold text-zinc-200 sm:hidden">
+        <span className="ml-1 text-[12px] font-semibold text-zinc-200 lg:hidden">
           Mod Bots
         </span>
 
         {mobileOpen ? (
-          <div className="absolute left-2 top-full z-40 mt-1 w-[min(19rem,calc(100vw-1rem))] overflow-hidden rounded-md border border-white/[0.11] bg-[#181818]/[0.98] shadow-[0_16px_44px_rgba(0,0,0,0.6)] ring-1 ring-black/40 backdrop-blur-xl sm:hidden">
+          <div className="absolute left-2 top-full z-40 mt-1 w-[min(19rem,calc(100vw-1rem))] overflow-hidden rounded-md border border-white/[0.11] bg-[#181818]/[0.98] shadow-[0_16px_44px_rgba(0,0,0,0.6)] ring-1 ring-black/40 backdrop-blur-xl lg:hidden">
             <MobileMenu
               menus={menus}
               onAction={(action) => {
@@ -699,7 +699,7 @@ export function MenuBar({
         <div
           role="menubar"
           aria-label="Application menu"
-          className="hidden h-full items-center gap-0.5 sm:flex"
+          className="hidden h-full items-center gap-0.5 lg:flex"
         >
           {menus.map((menu) => (
             <div key={menu.id} className="relative">

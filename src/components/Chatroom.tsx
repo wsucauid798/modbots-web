@@ -12,6 +12,7 @@ import {
   DoorOpen,
   FileText,
   Image,
+  Info,
   Link as LinkIcon,
   LogOut,
   MapPin,
@@ -30,6 +31,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type {
+  CSSProperties,
   FormEvent,
   KeyboardEvent as ReactKeyboardEvent,
   ReactNode,
@@ -746,7 +748,7 @@ function PanelResizeHandle({
           onWidthChange(width + grow * direction * panelResizeStep);
         }
       }}
-      className="group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize touch-none focus-visible:outline-none"
+      className="group relative z-10 -mx-1 hidden w-2 shrink-0 cursor-col-resize touch-none focus-visible:outline-none lg:block"
     >
       <span
         aria-hidden="true"
@@ -862,7 +864,7 @@ function StatusBar({
 
 function MessageActions({ onReply }: { onReply?: () => void }) {
   return (
-    <div className="absolute right-4 top-0 hidden items-center rounded-xl border border-white/10 bg-[#181818] p-0.5 shadow-xl group-hover:flex group-focus-within:flex sm:right-6">
+    <div className="absolute right-4 top-0 flex items-center rounded-xl border border-white/10 bg-[#181818] p-0.5 opacity-80 shadow-xl lg:right-6 lg:pointer-events-none lg:opacity-0 lg:group-hover:pointer-events-auto lg:group-hover:opacity-100 lg:group-focus-within:pointer-events-auto lg:group-focus-within:opacity-100">
       <button
         type="button"
         onClick={onReply}
@@ -1744,6 +1746,10 @@ export function Chatroom() {
   const [mutedNotice, setMutedNotice] = useState<string | null>(null);
   const [membersOpen, setMembersOpen] = useState(true);
   const [aboutPanelOpen, setAboutPanelOpen] = useState(true);
+  const [mobilePanel, setMobilePanel] = useState<
+    "participants" | "about" | null
+  >(null);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [participantsWidth, setParticipantsWidth] = usePanelWidth(
     "modbots.desktop.participants-panel-width",
     participantsPanel,
@@ -1806,6 +1812,22 @@ export function Chatroom() {
     (actorId) => actors.get(actorId)?.type === "mod_bot",
   ).length;
 
+  const openSearch = useCallback(() => {
+    if (window.matchMedia("(max-width: 1023px)").matches) {
+      setMobilePanel(null);
+      setMobileSearchOpen(true);
+      return;
+    }
+
+    searchInput.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (mobileSearchOpen) {
+      searchInput.current?.focus();
+    }
+  }, [mobileSearchOpen]);
+
   useEffect(() => {
     setSendWithEnter(
       readStoredBoolean(settingsStorageKeys.sendWithEnter, true),
@@ -1865,6 +1887,8 @@ export function Chatroom() {
     if (entered && !wasEntered.current) {
       setMembersOpen(true);
       setAboutPanelOpen(true);
+      setMobilePanel(null);
+      setMobileSearchOpen(false);
     }
 
     wasEntered.current = entered;
@@ -2726,7 +2750,7 @@ export function Chatroom() {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
-        searchInput.current?.focus();
+        openSearch();
         return;
       }
 
@@ -2741,12 +2765,14 @@ export function Chatroom() {
         setSettingsOpen(false);
         setReplyTarget(null);
         setUserMenuOpen(false);
+        setMobilePanel(null);
+        setMobileSearchOpen(false);
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [entered]);
+  }, [entered, openSearch]);
 
   // Signing out (or a stale identity being dropped) closes the door again.
   useEffect(() => {
@@ -2828,7 +2854,7 @@ export function Chatroom() {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#0b0b0b] text-zinc-100">
+    <div className="flex h-screen h-dvh flex-col overflow-hidden bg-[#0b0b0b] text-zinc-100">
       <input
         ref={profilePictureInput}
         type="file"
@@ -2845,7 +2871,7 @@ export function Chatroom() {
       />
       {entered ? (
         <MenuBar
-          onFindInChat={() => searchInput.current?.focus()}
+          onFindInChat={openSearch}
           onOpenPreferences={() => openSettings("account")}
           onRefreshChatroom={() => void refresh()}
           onTakeScreenshot={() =>
@@ -2855,9 +2881,7 @@ export function Chatroom() {
         />
       ) : null}
       <main
-        className={`modbots-fit flex min-h-0 flex-1 flex-col overflow-hidden ${
-          entered ? "modbots-fit-with-menu min-w-[880px]" : "min-w-0"
-        }`}
+        className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       >
         {userMenuOpen ? (
           <div
@@ -2866,20 +2890,48 @@ export function Chatroom() {
             aria-hidden="true"
           />
         ) : null}
-        <div className="flex min-h-0 flex-1">
+        {mobilePanel !== null ? (
+          <button
+            type="button"
+            aria-label="Close side panel"
+            onClick={() => {
+              setMobilePanel(null);
+              setUserMenuOpen(false);
+            }}
+            className="fixed inset-x-0 bottom-7 top-11 z-30 bg-black/65 backdrop-blur-[2px] lg:hidden"
+          />
+        ) : null}
+        <div className="relative flex min-h-0 flex-1">
         {!entered ? (
           <SessionRestoreScreen restoring={identityRestored && hasIdentity} />
         ) : (
           <>
             {membersOpen ? (
               <aside
-                className="flex shrink-0 flex-col border-r border-white/[0.08] bg-[#0d0d0d]"
-                style={{ width: participantsWidth }}
+                className={`fixed bottom-7 left-0 top-11 z-40 w-[min(88vw,340px)] shrink-0 flex-col border-r border-white/[0.08] bg-[#0d0d0d] shadow-[20px_0_60px_rgba(0,0,0,0.5)] lg:static lg:z-auto lg:flex lg:w-[var(--participants-width)] lg:shadow-none ${
+                  mobilePanel === "participants" ? "flex" : "hidden"
+                }`}
+                style={
+                  {
+                    "--participants-width": `${participantsWidth}px`,
+                  } as CSSProperties
+                }
               >
                 <div className="flex h-[68px] shrink-0 items-center border-b border-white/[0.08] px-5">
                   <h1 className="truncate text-[15px] font-semibold text-white">
                     {roomName}
                   </h1>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobilePanel(null);
+                      setUserMenuOpen(false);
+                    }}
+                    className="ml-auto rounded-lg p-2 text-zinc-500 hover:bg-white/[0.06] hover:text-white lg:hidden"
+                    aria-label="Close participants"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
                 <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.06] px-5 py-2 text-zinc-400">
                   <Users className="h-3.5 w-3.5 shrink-0" />
@@ -3078,38 +3130,107 @@ export function Chatroom() {
             ) : null}
 
             <div className="flex min-w-0 flex-1 flex-col">
-              <header className="z-10 flex h-[68px] shrink-0 items-center gap-4 border-b border-white/[0.08] bg-[#0d0d0d] px-5">
-                <h2 className="shrink-0 text-[14px] font-semibold text-white">
-                  Chat
-                </h2>
-                <div className="flex-1" />
-                <div className="flex h-9 w-[min(32vw,380px)] items-center gap-2 rounded-lg border border-white/10 bg-[#181818] px-3">
-                  <Search className="h-4 w-4 shrink-0 text-zinc-500" />
-                  <input
-                    ref={searchInput}
-                    value={searchQuery}
-                    onChange={(event) =>
-                      setSearchQuery(event.currentTarget.value)
-                    }
-                    placeholder="Search the chat"
-                    className="min-w-0 flex-1 bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
-                  />
-                  {searchQuery.length > 0 ? (
+              <header className="z-10 flex h-14 shrink-0 items-center gap-2 border-b border-white/[0.08] bg-[#0d0d0d] px-3 lg:h-[68px] lg:gap-4 lg:px-5">
+                {mobileSearchOpen ? (
+                  <div className="flex min-w-0 flex-1 items-center gap-2 lg:hidden">
+                    <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/10 bg-[#181818] px-3">
+                      <Search className="h-4 w-4 shrink-0 text-zinc-500" />
+                      <input
+                        ref={searchInput}
+                        value={searchQuery}
+                        onChange={(event) =>
+                          setSearchQuery(event.currentTarget.value)
+                        }
+                        placeholder="Search the chat"
+                        className="min-w-0 flex-1 bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
+                      />
+                    </div>
                     <button
                       type="button"
-                      onClick={() => setSearchQuery("")}
-                      className="rounded-md p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-white"
-                      aria-label="Clear search"
+                      onClick={() => {
+                        setSearchQuery("");
+                        setMobileSearchOpen(false);
+                      }}
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-zinc-500 hover:bg-white/[0.06] hover:text-white"
+                      aria-label="Close search"
                     >
-                      <X className="h-3.5 w-3.5" />
+                      <X className="h-4 w-4" />
                     </button>
-                  ) : null}
-                </div>
-                <div className="flex-1" />
+                  </div>
+                ) : (
+                  <>
+                    <h2 className="min-w-0 flex-1 truncate text-[14px] font-semibold text-white lg:flex-none">
+                      Chat
+                    </h2>
+                    <div className="hidden flex-1 lg:block" />
+                    <div className="hidden h-9 w-[min(32vw,380px)] items-center gap-2 rounded-lg border border-white/10 bg-[#181818] px-3 lg:flex">
+                      <Search className="h-4 w-4 shrink-0 text-zinc-500" />
+                      <input
+                        ref={searchInput}
+                        value={searchQuery}
+                        onChange={(event) =>
+                          setSearchQuery(event.currentTarget.value)
+                        }
+                        placeholder="Search the chat"
+                        className="min-w-0 flex-1 bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
+                      />
+                      {searchQuery.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setSearchQuery("")}
+                          className="rounded-md p-1 text-zinc-500 hover:bg-white/[0.06] hover:text-white"
+                          aria-label="Clear search"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="hidden flex-1 lg:block" />
+                    <div className="ml-auto flex items-center gap-1 lg:hidden">
+                      <button
+                        type="button"
+                        onClick={openSearch}
+                        className="flex h-9 w-9 items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.06] hover:text-white"
+                        aria-label="Search the chat"
+                      >
+                        <Search className="h-[18px] w-[18px]" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          setMembersOpen(true);
+                          setMobilePanel("participants");
+                        }}
+                        className="relative flex h-9 w-9 items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.06] hover:text-white"
+                        aria-label="Show participants"
+                        aria-expanded={mobilePanel === "participants"}
+                      >
+                        <Users className="h-[18px] w-[18px]" />
+                        <span className="absolute right-0 top-0 flex min-w-4 -translate-y-1/4 translate-x-1/4 items-center justify-center rounded-full bg-zinc-200 px-1 text-[9px] font-bold leading-4 text-zinc-900">
+                          {visibleOnlineActors.length}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          setAboutPanelOpen(true);
+                          setMobilePanel("about");
+                        }}
+                        className="flex h-9 w-9 items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.06] hover:text-white"
+                        aria-label="Show room information"
+                        aria-expanded={mobilePanel === "about"}
+                      >
+                        <Info className="h-[18px] w-[18px]" />
+                      </button>
+                    </div>
+                  </>
+                )}
               </header>
 
               {connectionProblem || error instanceof Error ? (
-                <div className="flex shrink-0 items-center justify-between border-b border-white/[0.08] bg-[#151515] px-7 py-2 text-xs text-zinc-300">
+                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/[0.08] bg-[#151515] px-4 py-2 text-xs text-zinc-300 lg:px-7">
                   <span>
                     {historyUnavailable
                       ? "We couldn't load the conversation right now. Try again in a moment."
@@ -3177,7 +3298,7 @@ export function Chatroom() {
                     </div>
                   </div>
 
-                  <div className="shrink-0 px-4 pb-4 pt-2 sm:px-7 sm:pb-5">
+                  <div className="shrink-0 px-3 pb-3 pt-2 sm:px-7 sm:pb-5">
                     {attachmentError !== null ? (
                       <div className="mb-2 flex items-center gap-2 rounded-xl border border-white/10 bg-[#151515] px-3 py-2 text-xs text-zinc-300">
                         <CircleAlert className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
@@ -3445,10 +3566,28 @@ export function Chatroom() {
             ) : null}
             {aboutPanelOpen ? (
               <aside
-                className="flex shrink-0 flex-col border-l border-white/[0.08] bg-[#0d0d0d]"
-                style={{ width: aboutWidth }}
+                className={`fixed bottom-7 right-0 top-11 z-40 w-[min(88vw,360px)] shrink-0 flex-col border-l border-white/[0.08] bg-[#0d0d0d] shadow-[-20px_0_60px_rgba(0,0,0,0.5)] lg:static lg:z-auto lg:flex lg:w-[var(--about-width)] lg:shadow-none ${
+                  mobilePanel === "about" ? "flex" : "hidden"
+                }`}
+                style={
+                  {
+                    "--about-width": `${aboutWidth}px`,
+                  } as CSSProperties
+                }
               >
-                <div className="flex h-[68px] shrink-0 items-center border-b border-white/[0.08] px-5" />
+                <div className="flex h-[68px] shrink-0 items-center border-b border-white/[0.08] px-5">
+                  <h2 className="text-[15px] font-semibold text-white lg:hidden">
+                    Room information
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setMobilePanel(null)}
+                    className="ml-auto rounded-lg p-2 text-zinc-500 hover:bg-white/[0.06] hover:text-white lg:hidden"
+                    aria-label="Close room information"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
                 <div className="modbots-scroll min-h-0 flex-1 overflow-y-auto p-5">
                   <p className="text-[13px] font-semibold text-zinc-100">
                     Mod Bots
