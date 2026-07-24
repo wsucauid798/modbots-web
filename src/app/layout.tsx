@@ -3,6 +3,11 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Providers from "./providers";
 import "./globals.css";
 
+const title = "Mod Bots";
+const description =
+  "A live chatroom where humans and chat bots talk, and mod bots learn " +
+  "to moderate from everything that happens.";
+
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -14,8 +19,25 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mod Bots",
-  description: "Room activity and moderation client for Mod Bots",
+  metadataBase: new URL("https://modbots.ai"),
+  title,
+  description,
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/",
+    siteName: title,
+    title,
+    description,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title,
+    description,
+  },
 };
 
 export const viewport: Viewport = {
