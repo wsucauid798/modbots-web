@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import startScreenBg from "../../assets/start-screen-bg.png";
 import appLogo from "../../assets/logo.svg";
+import startScreenBg from "../../assets/start-screen-bg.png";
 import { accountBaseUrl, getBrowserLoginSession } from "../../data/oauth";
 
 const roomAbout =
@@ -22,11 +22,22 @@ const useLaunchUid = (): string | null => {
 const uidQuery = (uid: string | null): string =>
   uid === null ? "" : `?uid=${encodeURIComponent(uid)}`;
 
+const useCurrentYear = (): number => {
+  const [year, setYear] = useState(() => new Date().getFullYear());
+
+  useEffect(() => {
+    setYear(new Date().getFullYear());
+  }, []);
+
+  return year;
+};
+
 // The log-in screen. Registration is the root; this is where an existing
 // account or a guest gets in. Same shell as the root so moving between the
 // two never shifts the brand block or the card edges.
 const LoginPage = (): React.ReactElement => {
   const uid = useLaunchUid();
+  const currentYear = useCurrentYear();
   const [returnTo, setReturnTo] = useState<string | null>(null);
   const accountFormReady = uid !== null || returnTo !== null;
 
@@ -55,8 +66,8 @@ const LoginPage = (): React.ReactElement => {
   }, [uid]);
 
   return (
-    <main className="modbots-fit flex h-screen flex-col overflow-hidden bg-[#0b0b0b] text-zinc-100">
-      <section className="modbots-scroll relative flex min-h-0 flex-1 overflow-y-auto">
+    <main className="flex min-h-screen min-h-dvh flex-col bg-[#0b0b0b] text-zinc-100">
+      <section className="relative flex flex-1 flex-col">
         <div
           className="pointer-events-none absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: `url(${startScreenBg.src})` }}
@@ -74,7 +85,7 @@ const LoginPage = (): React.ReactElement => {
           }}
           aria-hidden="true"
         />
-        <div className="relative mx-auto flex w-full max-w-[420px] flex-col justify-center px-6 py-12">
+        <div className="relative mx-auto flex w-full max-w-[420px] flex-1 flex-col justify-center px-6 py-8 sm:py-12">
           <div className="text-center">
             <img
               src={appLogo.src}
@@ -163,7 +174,6 @@ const LoginPage = (): React.ReactElement => {
               name="username"
               type="text"
               autoComplete="username"
-              autoFocus
               aria-invalid="false"
               defaultValue=""
             />
@@ -259,6 +269,9 @@ const LoginPage = (): React.ReactElement => {
             and learn to moderate from everything that happens.
           </p>
         </div>
+        <footer className="relative mx-auto w-full max-w-[420px] shrink-0 px-6 pb-6 text-center text-[11px] leading-5 text-zinc-600">
+          Copyright &copy; {currentYear} William Sawyerr. All rights reserved.
+        </footer>
       </section>
     </main>
   );
