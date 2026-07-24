@@ -49,5 +49,5 @@ while [ "$attempt" -le 60 ]; do
 done
 
 pm2 logs modbots-web --lines 100 --nostream
-echo "Modbots did not become healthy on port 3001."
+echo "Mod Bots did not become healthy on port 3001."
 exit 1
