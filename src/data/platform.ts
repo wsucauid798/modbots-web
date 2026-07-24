@@ -235,6 +235,38 @@ const base64 = (data: ArrayBuffer): string => {
   return btoa(binary);
 };
 
+export const uploadActorProfilePicture = async (
+  actorId: string,
+  file: File,
+): Promise<Actor> => {
+  const extension = file.name.split(".").at(-1)?.toLowerCase() ?? "";
+  const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+  const allowedExtensions = new Set(["jpeg", "jpg", "png", "webp"]);
+
+  if (!allowedTypes.has(file.type) && !allowedExtensions.has(extension)) {
+    throw new Error("Choose a PNG, JPEG, or WebP image.");
+  }
+
+  if (file.size === 0 || file.size > 5 * 1024 * 1024) {
+    throw new Error("Profile pictures must be between 1 byte and 5 MB.");
+  }
+
+  return requestJson(
+    apiUrl(`/api/actors/${encodeURIComponent(actorId)}/profile-picture`),
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ data: base64(await file.arrayBuffer()) }),
+    },
+  );
+};
+
+export const removeActorProfilePicture = (actorId: string): Promise<Actor> =>
+  requestJson(
+    apiUrl(`/api/actors/${encodeURIComponent(actorId)}/profile-picture`),
+    { method: "DELETE" },
+  );
+
 export const postRoomMediaAsset = async (
   roomId: string,
   actorId: string,

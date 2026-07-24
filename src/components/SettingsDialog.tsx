@@ -19,6 +19,7 @@ export interface AccountSettingsSummary {
   identityLabel: string;
   memberSinceLabel: string;
   profilePictureSummary: string;
+  hasProfilePicture: boolean;
   healthSummary: string;
   latestModerationLabel: string | null;
   bio: string | null;
@@ -143,6 +144,9 @@ export function SettingsDialog({
   onSendWithEnterChange,
   onOpenAccountPage,
   onManageProfilePicture,
+  onRemoveProfilePicture,
+  profilePictureSaving,
+  profilePictureError,
   onSaveProfile,
   profileSaving,
   profileError,
@@ -156,6 +160,9 @@ export function SettingsDialog({
   onSendWithEnterChange: (checked: boolean) => void;
   onOpenAccountPage: () => void;
   onManageProfilePicture: () => void;
+  onRemoveProfilePicture: () => void;
+  profilePictureSaving: boolean;
+  profilePictureError: string | null;
   onSaveProfile: (profile: {
     bio: string | null;
     pronouns: string | null;
@@ -356,20 +363,40 @@ export function SettingsDialog({
                       title="Profile picture"
                       icon={<Camera className="h-4 w-4" />}
                       action={
-                        <button
-                          type="button"
-                          onClick={onManageProfilePicture}
-                          className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-zinc-200 transition-colors hover:border-white/15 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-                        >
-                          Manage picture
-                          <ArrowUpRight className="h-3.5 w-3.5" />
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={onManageProfilePicture}
+                            disabled={profilePictureSaving}
+                            className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[11px] font-semibold text-zinc-200 transition-colors hover:border-white/15 hover:bg-white/[0.08] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-wait disabled:opacity-50"
+                          >
+                            <Camera className="h-3.5 w-3.5" />
+                            {profilePictureSaving
+                              ? "Saving picture..."
+                              : "Change picture"}
+                          </button>
+                          {account.hasProfilePicture ? (
+                            <button
+                              type="button"
+                              onClick={onRemoveProfilePicture}
+                              disabled={profilePictureSaving}
+                              className="rounded-full px-3 py-1.5 text-[11px] font-semibold text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-wait disabled:opacity-50"
+                            >
+                              Remove picture
+                            </button>
+                          ) : null}
+                        </div>
                       }
                     >
                       <p>{account.profilePictureSummary}</p>
                       <p className="mt-1 text-[11px] text-zinc-500">
                         Profile pictures are served through UPPS.
                       </p>
+                      {profilePictureError !== null ? (
+                        <p className="mt-2 text-[11px] text-red-300">
+                          {profilePictureError}
+                        </p>
+                      ) : null}
                     </DetailCard>
 
                     <DetailCard

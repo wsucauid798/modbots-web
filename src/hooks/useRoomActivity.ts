@@ -10,6 +10,7 @@ import type {
   ContentAddress,
   RealtimeStatus,
   RoomEvent,
+  RoomRoster,
 } from "../data/contracts";
 import {
   clearStoredIdentity,
@@ -32,9 +33,11 @@ import {
   postRoomContent,
   postRoomMediaAsset,
   postRoomMessage,
+  removeActorProfilePicture,
   setRoomPresence,
   setSessionToken,
   updateActorProfile,
+  uploadActorProfilePicture,
 } from "../data/platform";
 import type { BrowserLoginOutcome } from "../data/oauth";
 import { runWebSocket, runWebTransport } from "../data/realtime";
@@ -181,6 +184,24 @@ export const useRoomActivity = (roomId: string) => {
     retry: 1,
   });
   const localActor = desktopSession.data ?? undefined;
+  const cacheActor = (actor: Actor): void => {
+    queryClient.setQueryData(
+      ["desktop-session", roomId, actor.id],
+      actor,
+    );
+    queryClient.setQueryData(["actor", actor.id], actor);
+    queryClient.setQueryData<RoomRoster | undefined>(
+      rosterKey,
+      (current) =>
+        current === undefined
+          ? current
+          : {
+              actors: current.actors.map((candidate) =>
+                candidate.id === actor.id ? actor : candidate,
+              ),
+            },
+    );
+  };
 
   // A stored identity that resolves to a missing or retired actor is stale:
   // drop it and fall back to the join screen.
@@ -231,13 +252,27 @@ export const useRoomActivity = (roomId: string) => {
 
       return updateActorProfile(localActor.id, profile);
     },
-    onSuccess: (actor) => {
-      queryClient.setQueryData(
-        ["desktop-session", roomId, actor.id],
-        actor,
-      );
-      queryClient.setQueryData(["actor", actor.id], actor);
+    onSuccess: cacheActor,
+  });
+  const uploadProfilePicture = useMutation({
+    mutationFn: async (file: File) => {
+      if (localActor === undefined) {
+        throw new Error("Join the room before changing your profile picture.");
+      }
+
+      return uploadActorProfilePicture(localActor.id, file);
     },
+    onSuccess: cacheActor,
+  });
+  const removeProfilePicture = useMutation({
+    mutationFn: async () => {
+      if (localActor === undefined) {
+        throw new Error("Join the room before changing your profile picture.");
+      }
+
+      return removeActorProfilePicture(localActor.id);
+    },
+    onSuccess: cacheActor,
   });
   // A completed browser login (automatic return or pasted code) becomes
   // the app's identity and session.
@@ -396,12 +431,12 @@ export const useRoomActivity = (roomId: string) => {
           .map((actor) => [actor.id, actor]),
       );
 
-      if (localActor !== undefined) {
-        actorMap.set(localActor.id, localActor);
-      }
-
       for (const actor of roster.data?.actors ?? []) {
         actorMap.set(actor.id, actor);
+      }
+
+      if (localActor !== undefined) {
+        actorMap.set(localActor.id, localActor);
       }
 
       return actorMap;
@@ -577,6 +612,8 @@ export const useRoomActivity = (roomId: string) => {
     sendMessage,
     sendContent,
     signOut,
+    uploadProfilePicture,
+    removeProfilePicture,
     updateProfile,
   };
 };

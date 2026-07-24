@@ -458,6 +458,27 @@ type ActivityScope = "7d" | "30d" | "all";
 
 type ParticipantStatus = "active" | "idle" | "offline";
 
+const participantStatusStyles: Record<
+  ParticipantStatus,
+  { dot: string; label: string; text: string }
+> = {
+  active: {
+    dot: "bg-emerald-400",
+    label: "Active",
+    text: "text-emerald-300",
+  },
+  idle: {
+    dot: "bg-amber-400",
+    label: "Idle",
+    text: "text-amber-300",
+  },
+  offline: {
+    dot: "bg-zinc-500",
+    label: "Offline",
+    text: "text-zinc-500",
+  },
+};
+
 const activityScopes: Array<{ id: ActivityScope; label: string }> = [
   { id: "7d", label: "7d" },
   { id: "30d", label: "30d" },
@@ -1215,28 +1236,7 @@ function ParticipantRow({
   actor: Actor;
   status: ParticipantStatus;
 }) {
-  const statusStyles: Record<
-    ParticipantStatus,
-    { dot: string; label: string; text: string }
-  > = {
-    active: {
-      dot: "bg-emerald-400",
-      label: "Active",
-      text: "text-emerald-300",
-    },
-    idle: {
-      dot: "bg-amber-400",
-      label: "Idle",
-      text: "text-amber-300",
-    },
-    offline: {
-      dot: "bg-zinc-500",
-      label: "Offline",
-      text: "text-zinc-500",
-    },
-  };
-
-  const currentStatus = statusStyles[status];
+  const currentStatus = participantStatusStyles[status];
 
   return (
     <div className="flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-white/[0.04]">
@@ -1727,6 +1727,8 @@ function App() {
     sendContent,
     sendMessage,
     signOut,
+    uploadProfilePicture,
+    removeProfilePicture,
     updateProfile,
   } = useRoomActivity(roomId);
   const [draft, setDraft] = useState("");
@@ -1775,6 +1777,7 @@ function App() {
   const [sendWithEnter, setSendWithEnter] = useState(true);
   const [settingsReady, setSettingsReady] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [localWindowActive, setLocalWindowActive] = useState(false);
   // Entering the room is an explicit act every launch: nothing inside the
   // room renders until the person finishes the browser-side sign-in flow.
   const [entered, setEntered] = useState(false);
@@ -1786,6 +1789,7 @@ function App() {
   const wasEntered = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const attachmentInput = useRef<HTMLInputElement>(null);
+  const profilePictureInput = useRef<HTMLInputElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const apiConnected = apiHealth.data?.status === "ok";
   const chatBotCount = onlineActorIds.filter(
@@ -1803,6 +1807,28 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const updateLocalWindowActivity = () => {
+      setLocalWindowActive(
+        document.visibilityState === "visible" && document.hasFocus(),
+      );
+    };
+
+    updateLocalWindowActivity();
+    window.addEventListener("focus", updateLocalWindowActivity);
+    window.addEventListener("blur", updateLocalWindowActivity);
+    document.addEventListener("visibilitychange", updateLocalWindowActivity);
+
+    return () => {
+      window.removeEventListener("focus", updateLocalWindowActivity);
+      window.removeEventListener("blur", updateLocalWindowActivity);
+      document.removeEventListener(
+        "visibilitychange",
+        updateLocalWindowActivity,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
     if (!settingsReady) {
       return;
     }
@@ -1814,6 +1840,19 @@ function App() {
     setSettingsSection(section);
     setSettingsOpen(true);
   }, []);
+
+  useEffect(() => {
+    if (
+      uploadProfilePicture.error !== null ||
+      removeProfilePicture.error !== null
+    ) {
+      openSettings("account");
+    }
+  }, [
+    openSettings,
+    removeProfilePicture.error,
+    uploadProfilePicture.error,
+  ]);
 
   useEffect(() => {
     if (entered && !wasEntered.current) {
@@ -1888,6 +1927,10 @@ function App() {
       const lastActivityAt = state?.lastActivityAt ?? null;
 
       if (actor.type === "human") {
+        if (actor.id === localActor?.id && localWindowActive) {
+          return "active";
+        }
+
         return lastActivityAt !== null &&
           now - lastActivityAt <= participantActiveWindowMs
           ? "active"
@@ -1924,7 +1967,23 @@ function App() {
       type,
       members: membersByType[type],
     }));
-  }, [actors, onlineActorIds, participantStatuses, visibleOnlineActors]);
+  }, [
+    actors,
+    localActor?.id,
+    localWindowActive,
+    onlineActorIds,
+    participantStatuses,
+    visibleOnlineActors,
+  ]);
+  const localParticipantStatus =
+    localActor === undefined
+      ? "offline"
+      : (roster
+          .flatMap((group) => group.members)
+          .find((member) => member.actor.id === localActor.id)?.status ??
+        "offline");
+  const localParticipantStatusStyle =
+    participantStatusStyles[localParticipantStatus];
   const roomEvents = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase();
 
@@ -2318,8 +2377,9 @@ function App() {
       memberSinceLabel: memberSince(localActor.createdAt),
       profilePictureSummary:
         localActor.profilePictureId === null
-          ? "You are using the monogram fallback right now. Picture management belongs on your account page."
+          ? "You are using the monogram fallback right now."
           : "This profile picture is assigned through the Unified Profile-Picture System.",
+      hasProfilePicture: localActor.profilePictureId !== null,
       healthSummary:
         isMuted
           ? "Muted right now."
@@ -2346,6 +2406,11 @@ function App() {
     setUserMenuOpen(false);
     openSettings("account");
   }, [openSettings]);
+  const chooseProfilePicture = useCallback(() => {
+    uploadProfilePicture.reset();
+    removeProfilePicture.reset();
+    profilePictureInput.current?.click();
+  }, [removeProfilePicture, uploadProfilePicture]);
   // Everyone a human can address: the bot residents, always in the room, and
   // any other human currently present. Yourself and the platform are never
   // addressees.
@@ -2751,6 +2816,20 @@ function App() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#0b0b0b] text-zinc-100">
+      <input
+        ref={profilePictureInput}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = "";
+
+          if (file !== undefined) {
+            uploadProfilePicture.mutate(file);
+          }
+        }}
+      />
       {entered ? (
         <MenuBar
           onFindInChat={() => searchInput.current?.focus()}
@@ -2847,7 +2926,7 @@ function App() {
                             />
                             <button
                               type="button"
-                              onClick={openAccountSettings}
+                              onClick={chooseProfilePicture}
                               className="absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-[#181818] text-zinc-300 shadow-[0_10px_22px_rgba(0,0,0,0.35)] transition-colors hover:border-white/20 hover:bg-[#202020] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
                               aria-label="Change profile picture"
                               title="Change profile picture"
@@ -2927,6 +3006,16 @@ function App() {
                           }
                         />
                       </div>
+                      <div className="border-t border-white/[0.08] p-2">
+                        <button
+                          type="button"
+                          onClick={logOut}
+                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[13px] font-medium text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+                        >
+                          <LogOut className="h-4 w-4 shrink-0 text-zinc-500" />
+                          Log out
+                        </button>
+                      </div>
                     </div>
                   ) : null}
                   <div className="flex items-center gap-1 rounded-[20px] border border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))] p-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.22)]">
@@ -2941,11 +3030,7 @@ function App() {
                       aria-haspopup="dialog"
                       aria-expanded={userMenuOpen}
                       title="Your profile"
-                      className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-[14px] px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-default ${
-                        userMenuOpen
-                          ? "bg-white/[0.08]"
-                          : "hover:bg-white/[0.06]"
-                      }`}
+                      className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:cursor-default"
                     >
                       <div className="relative shrink-0">
                         <ActorProfilePicture
@@ -2954,8 +3039,12 @@ function App() {
                           name={localActor?.display ?? "You"}
                           size="md"
                         />
-                        {localProfile?.online ? (
-                          <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#0d0d0d] bg-zinc-200" />
+                        {localActor !== undefined ? (
+                          <span
+                            className={`absolute -bottom-0.5 -left-0.5 h-3 w-3 rounded-full border-2 border-[#0d0d0d] ${localParticipantStatusStyle.dot}`}
+                            aria-label={localParticipantStatusStyle.label}
+                            title={localParticipantStatusStyle.label}
+                          />
                         ) : null}
                       </div>
                       <span className="min-w-0 truncate text-[13px] font-semibold leading-5 text-zinc-100">
@@ -2965,25 +3054,11 @@ function App() {
                       {localActor !== undefined ? (
                         <ChevronDown
                           className={`h-3.5 w-3.5 shrink-0 text-zinc-500 transition-transform duration-200 ${
-                            userMenuOpen ? "rotate-180" : ""
+                            userMenuOpen ? "" : "rotate-180"
                           }`}
                         />
                       ) : null}
                     </button>
-                    {localActor !== undefined ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setUserMenuOpen(false);
-                          void signOut();
-                        }}
-                        aria-label="Log out"
-                        title="Log out"
-                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-                      >
-                        <LogOut className="h-4 w-4" />
-                      </button>
-                    ) : null}
                   </div>
                 </div>
               </aside>
@@ -3674,7 +3749,21 @@ function App() {
             sendWithEnter={sendWithEnter}
             onSendWithEnterChange={setSendWithEnter}
             onOpenAccountPage={openAccountPage}
-            onManageProfilePicture={openAccountPage}
+            onManageProfilePicture={chooseProfilePicture}
+            onRemoveProfilePicture={() => {
+              uploadProfilePicture.reset();
+              removeProfilePicture.mutate();
+            }}
+            profilePictureSaving={
+              uploadProfilePicture.isPending || removeProfilePicture.isPending
+            }
+            profilePictureError={
+              uploadProfilePicture.error instanceof Error
+                ? uploadProfilePicture.error.message
+                : removeProfilePicture.error instanceof Error
+                  ? removeProfilePicture.error.message
+                  : null
+            }
             onSaveProfile={(profile) => {
               updateProfile.mutate(profile);
             }}
