@@ -1,0 +1,104 @@
+name: Web CI/CD
+
+on:
+  push:
+    branches:
+      - main
+      - release/v0.0.1-alpha
+  pull_request:
+    branches:
+      - main
+      - release/v0.0.1-alpha
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: Verify web app
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_MODBOTS_API_URL: ${{ vars.NEXT_PUBLIC_MODBOTS_API_URL }}
+      NEXT_PUBLIC_MODBOTS_REALTIME_CONFIG_URL: ${{ vars.NEXT_PUBLIC_MODBOTS_REALTIME_CONFIG_URL }}
+      NEXT_PUBLIC_MODBOTS_REALTIME_HEALTH_URL: ${{ vars.NEXT_PUBLIC_MODBOTS_REALTIME_HEALTH_URL }}
+      NEXT_PUBLIC_MODBOTS_ACCOUNT_URL: ${{ vars.NEXT_PUBLIC_MODBOTS_ACCOUNT_URL }}
+
+    steps:
+      - name: Check out web repo
+        uses: actions/checkout@v6
+
+      - name: Validate production configuration
+        run: |
+          for variable in \
+            NEXT_PUBLIC_MODBOTS_API_URL \
+            NEXT_PUBLIC_MODBOTS_REALTIME_CONFIG_URL \
+            NEXT_PUBLIC_MODBOTS_REALTIME_HEALTH_URL \
+            NEXT_PUBLIC_MODBOTS_ACCOUNT_URL; do
+            if [ -z "$(printenv "$variable")" ]; then
+              echo "Missing repository variable: $variable"
+              exit 1
+            fi
+          done
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        run: npm run build
+
+  deploy:
+    name: Deploy web app
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release/v0.0.1-alpha'
+    runs-on: ubuntu-latest
+    needs: verify
+    environment:
+      name: production
+      url: https://modbots.ai
+    env:
+      NEXT_PUBLIC_MODBOTS_API_URL: ${{ vars.NEXT_PUBLIC_MODBOTS_API_URL }}
+      NEXT_PUBLIC_MODBOTS_REALTIME_CONFIG_URL: ${{ vars.NEXT_PUBLIC_MODBOTS_REALTIME_CONFIG_URL }}
+      NEXT_PUBLIC_MODBOTS_REALTIME_HEALTH_URL: ${{ vars.NEXT_PUBLIC_MODBOTS_REALTIME_HEALTH_URL }}
+      NEXT_PUBLIC_MODBOTS_ACCOUNT_URL: ${{ vars.NEXT_PUBLIC_MODBOTS_ACCOUNT_URL }}
+      PRODUCTION_HOST: 217.154.40.130
+      PRODUCTION_ROOT: /var/www/modbots-web
+      PRODUCTION_SSH_USER: wsawyerr
+
+    steps:
+      - name: Configure SSH
+        env:
+          PRODUCTION_KNOWN_HOSTS: ${{ secrets.PRODUCTION_KNOWN_HOSTS }}
+          PRODUCTION_SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+        run: |
+          if [ -z "$PRODUCTION_KNOWN_HOSTS" ] || [ -z "$PRODUCTION_SSH_KEY" ]; then
+            echo "Production SSH secrets are not configured."
+            exit 1
+          fi
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$PRODUCTION_SSH_KEY" > ~/.ssh/modbots-web-production
+          chmod 600 ~/.ssh/modbots-web-production
+          printf '%s\n' "$PRODUCTION_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Check out successful commit on production
+        run: |
+          ssh -i ~/.ssh/modbots-web-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "set -eu; git -C '$PRODUCTION_ROOT' init; if git -C '$PRODUCTION_ROOT' remote get-url origin >/dev/null 2>&1; then git -C '$PRODUCTION_ROOT' remote set-url origin 'https://github.com/${GITHUB_REPOSITORY}.git'; else git -C '$PRODUCTION_ROOT' remote add origin 'https://github.com/${GITHUB_REPOSITORY}.git'; fi; git -C '$PRODUCTION_ROOT' fetch --depth=1 origin '$GITHUB_SHA'; git -C '$PRODUCTION_ROOT' checkout --detach '$GITHUB_SHA'"
+
+      - name: Build and restart production
+        run: |
+          ssh -i ~/.ssh/modbots-web-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "cd '$PRODUCTION_ROOT' && NEXT_PUBLIC_MODBOTS_API_URL='$NEXT_PUBLIC_MODBOTS_API_URL' NEXT_PUBLIC_MODBOTS_REALTIME_CONFIG_URL='$NEXT_PUBLIC_MODBOTS_REALTIME_CONFIG_URL' NEXT_PUBLIC_MODBOTS_REALTIME_HEALTH_URL='$NEXT_PUBLIC_MODBOTS_REALTIME_HEALTH_URL' NEXT_PUBLIC_MODBOTS_ACCOUNT_URL='$NEXT_PUBLIC_MODBOTS_ACCOUNT_URL' MODBOTS_DEPLOY_SOURCE=github-actions bash ./scripts/deploy-production.sh"
+
+      - name: Verify production process
+        run: |
+          ssh -i ~/.ssh/modbots-web-production "$PRODUCTION_SSH_USER@$PRODUCTION_HOST" "curl --fail --silent --show-error http://127.0.0.1:3001/ | grep -q '<title>Mod Bots</title>'"
